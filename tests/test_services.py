@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from database import Database
-from services import PersonnelService
+from services import PersonnelService, calculate_age
 
 
 class PersonnelServiceTests(unittest.TestCase):
@@ -193,7 +193,69 @@ class PersonnelServiceTests(unittest.TestCase):
         employee = self.svc.get_employee(self.emp)
         self.assertEqual((employee["effective_section"], employee["effective_position"]), ("2 отделение", "старший инспектор"))
         self.svc.save_employee({"fio": employee["fio"], "personnel_no": employee["personnel_no"], "department": "3 отдел", "section": "Руководство", "position": "начальник", "birth_date": None, "employment_date": None, "factual_address": "", "registration_address": "", "phone": "", "email": "", "schedule_type": "Не задан", "schedule_anchor_date": None, "employment_status": "Работает"}, self.emp)
-        self.assertEqual(self.svc.staff_unit(unit)["section"], "Руководство")
+        # Once assigned, the staff unit is the organisational source of truth.
+        self.assertEqual(self.svc.staff_unit(unit)["section"], "2 отделение")
+
+    def test_new_employee_does_not_create_staff_unit(self):
+        self.assertEqual(self.svc.list_staff_units(), [])
+        reopened = PersonnelService(Database(self.db.path))
+        self.assertEqual(reopened.list_staff_units(), [])
+
+    def test_employee_can_be_assigned_to_existing_vacancy(self):
+        unit = self.svc.save_staff_unit({"unit_number": "1", "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": None})
+        self.svc.save_staff_unit({"unit_number": "1", "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": self.emp}, unit)
+        self.assertEqual(self.svc.staff_unit(unit)["employee_id"], self.emp)
+
+    def test_unit_number_is_unique_and_vacant_unit_can_be_deleted(self):
+        unit = self.svc.save_staff_unit({"unit_number": "101", "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": None})
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.svc.save_staff_unit({"unit_number": "101", "department": "3 отдел", "section": "2 отделение", "position": "инспектор", "employee_id": None})
+        self.svc.delete_staff_unit(unit)
+        self.assertIsNone(self.svc.staff_unit(unit))
+
+    def test_occupied_unit_cannot_be_deleted(self):
+        unit = self.svc.save_staff_unit({"unit_number": "102", "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": self.emp})
+        with self.assertRaisesRegex(ValueError, "занята работником"):
+            self.svc.delete_staff_unit(unit)
+
+    def test_dismissal_releases_unit_and_archives_employee(self):
+        unit = self.svc.save_staff_unit({"unit_number": "103", "department": "3 отдел", "section": "1 отделение", "group_name": "2 группа", "position": "инспектор", "employee_id": self.emp})
+        self.svc.archive_employee(self.emp, "Уволен", "2026-08-20")
+        employee = self.svc.get_employee(self.emp)
+        self.assertEqual(employee["archive_date"], "2026-08-20")
+        self.assertIsNone(self.svc.staff_unit(unit)["employee_id"])
+        self.assertEqual(len(self.svc.archived_employees()), 1)
+        self.assertEqual(self.svc.staff_metrics("2026-08-24")["total"]["listed"], 0)
+
+    def test_group_is_saved_and_canonical(self):
+        self.svc.save_staff_unit({"unit_number": "104", "department": "3 отдел", "section": "1 отделение", "group_name": "3 группа", "position": "инспектор", "employee_id": self.emp})
+        self.assertEqual(self.svc.get_employee(self.emp)["effective_group"], "3 группа")
+
+    def test_age_natural_sort_and_authorized_headcount_do_not_affect_metrics(self):
+        self.assertEqual(calculate_age("2000-08-25", date(2026, 8, 25)), 26)
+        for number in ("М-10", "М-2", "М-1"):
+            self.svc.save_staff_unit({"unit_number": number, "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": None})
+        self.assertEqual([row["unit_number"] for row in self.svc.list_staff_units()], ["М-1", "М-2", "М-10"])
+        before = self.svc.staff_metrics("2026-08-24")["total"]
+        self.db.set_setting("authorized_headcount", "999")
+        self.assertEqual(self.svc.staff_metrics("2026-08-24")["total"], before)
+
+    def test_event_cannot_be_reassigned_to_another_employee(self):
+        other = self.svc.save_employee({"fio": "Другой", "personnel_no": "other", "department": "", "section": "Не указано", "position": "", "birth_date": None, "employment_date": None, "factual_address": "", "registration_address": "", "phone": "", "email": "", "schedule_type": "Не задан", "schedule_anchor_date": None, "employment_status": "Работает"})
+        event = self.svc.add_event({"employee_id": str(self.emp), "event_type": "Отпуск", "subtype": "", "start_date": "2026-08-24", "end_date": "2026-08-24", "location": "", "basis": "", "notes": ""})
+        with self.assertRaisesRegex(ValueError, "Нельзя изменить работника"):
+            self.svc.update_event(event, other, {"event_type": "Отпуск", "subtype": "", "start_date": "2026-08-24", "end_date": "2026-08-24", "location": "", "basis": "", "notes": ""})
+        self.assertEqual(self.svc.get_event(event)["employee_id"], self.emp)
+
+    def test_state_on_date_and_weapon_text(self):
+        self.svc.save_staff_unit({"unit_number": "105", "department": "3 отдел", "section": "1 отделение", "group_name": "1 группа", "position": "инспектор", "employee_id": self.emp})
+        self.svc.add_weapon(self.emp, "АК-205", "123456")
+        self.svc.add_weapon(self.emp, "ПМ", "АБ7890")
+        self.svc.add_event({"employee_id": str(self.emp), "event_type": "Отпуск", "subtype": "очередной", "start_date": "2026-08-24", "end_date": "2026-08-24", "location": "", "basis": "", "notes": ""})
+        state = self.svc.staff_state_on_date("2026-08-24")[0]
+        self.assertEqual((state["state"], state["reason"]), ("Отсутствует", "Отпуск: очередной"))
+        self.assertEqual(self.svc.weapon_summary(self.emp), "АК-205, ПМ")
+        self.assertEqual(self.svc.weapon_text(self.emp), "АК-205 №123456; ПМ №АБ7890")
 
     def test_not_specified_section_is_counted_separately(self):
         unit = self.svc.save_staff_unit({"unit_number": "old", "department": "3 отдел", "section": "Руководство", "position": "инспектор", "employee_id": None})
