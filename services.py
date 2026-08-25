@@ -7,6 +7,7 @@ from pathlib import Path
 from shutil import copyfile
 from typing import Any
 from uuid import uuid4
+import re
 
 try:  # The data layer and its tests remain usable without a GUI installation.
     from PySide6.QtCore import Qt
@@ -17,6 +18,23 @@ except ModuleNotFoundError:  # pragma: no cover - used only in headless test env
 
 from config import EVENT_TYPES, UNAVAILABLE_EVENT_TYPES
 from database import Database
+
+
+def calculate_age(birth_date: str | None, on_date: date | None = None) -> int | None:
+    """Return full years as of ``on_date``; age is deliberately not persisted."""
+    if not birth_date:
+        return None
+    try:
+        born = date.fromisoformat(birth_date)
+    except ValueError:
+        return None
+    today = on_date or date.today()
+    return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+
+def natural_sort_key(value: str | None) -> tuple:
+    """Sort 2 before 10 and M-2 before M-10 without coercing legacy IDs to 0."""
+    return tuple(int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", value or ""))
 
 
 @dataclass(frozen=True)
@@ -60,7 +78,7 @@ class PersonnelService:
                 COALESCE(u.department,p.department) AS effective_department,
                 COALESCE(u.section,p.section) AS effective_section,
                 COALESCE(u.position,p.position) AS effective_position
-                , COALESCE(u.group_name,'—') AS effective_group
+                , COALESCE(u.group_name,p.group_name,'—') AS effective_group
                 FROM employees p LEFT JOIN staff_units u ON u.employee_id=p.id WHERE p.id=?""", (employee_id,)).fetchone()
 
     def save_employee(self, data: dict[str, Any], employee_id: int | None = None) -> int:
@@ -69,20 +87,29 @@ class PersonnelService:
             "factual_address", "registration_address", "phone", "email",
             "employment_date", "schedule_type", "schedule_anchor_date", "employment_status", "section",
         ]
-        nullable = {"birth_date", "employment_date", "schedule_anchor_date"}
+        nullable = {"birth_date", "employment_date", "schedule_anchor_date", "archive_date"}
         values = [data.get(field) or None if field in nullable else data.get(field, "") for field in fields]
         values[fields.index("schedule_type")] = data.get("schedule_type") or "Не задан"
         values[fields.index("employment_status")] = data.get("employment_status") or "Работает"
         values[fields.index("section")] = data.get("section") or "Не указано"
         with self.db.connect() as conn:
             if employee_id:
+                unit = conn.execute("SELECT * FROM staff_units WHERE employee_id=?", (employee_id,)).fetchone()
+                # A filled staff unit is the canonical organisation record.  A
+                # card edit must not silently move its occupant elsewhere.
+                if unit:
+                    for field in ("department", "section", "position"):
+                        values[fields.index(field)] = unit[field]
+                status = values[fields.index("employment_status")]
                 assignments = ", ".join(f"{field}=?" for field in fields)
                 conn.execute(f"UPDATE employees SET {assignments}, updated_at=CURRENT_TIMESTAMP WHERE id=?", (*values, employee_id))
-                unit=conn.execute("SELECT id FROM staff_units WHERE employee_id=?",(employee_id,)).fetchone()
-                if unit:
-                    conn.execute("UPDATE staff_units SET department=?,section=?,position=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(data.get("department", ""),data.get("section") or "Не указано",data.get("position", ""),unit["id"]))
-                    if (data.get("employment_status") or "Работает") != "Работает":
+                if status != "Работает":
+                    archive_date = data.get("archive_date") or date.today().isoformat()
+                    conn.execute("UPDATE employees SET archive_date=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (archive_date, employee_id))
+                    if unit:
                         conn.execute("UPDATE staff_units SET employee_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(unit["id"],))
+                elif data.get("archive_date") is not None:
+                    conn.execute("UPDATE employees SET archive_date=NULL WHERE id=?", (employee_id,))
                 return employee_id
             cur = conn.execute(
                 f"INSERT INTO employees({', '.join(fields)}) VALUES ({', '.join('?' for _ in fields)})", values
@@ -135,37 +162,89 @@ class PersonnelService:
         if old_file:
             old_file.unlink(missing_ok=True)
 
-    def archive_employee(self, employee_id: int, status: str = "Архив") -> None:
-        with self.db.connect() as conn:
-            conn.execute("UPDATE employees SET employment_status=?, archive_date=date('now'), updated_at=CURRENT_TIMESTAMP WHERE id=?", (status, employee_id))
+    def archive_employee(self, employee_id: int, status: str = "Архив", archive_date: str | None = None) -> None:
+        person = self.get_employee(employee_id)
+        if not person:
+            raise ValueError("Работник не найден.")
+        data = dict(person)
+        data.update({"employment_status": status, "archive_date": archive_date or date.today().isoformat()})
+        self.save_employee(data, employee_id)
 
     # ---------- staff structure ----------
-    def list_staff_units(self, section: str = "Все", search: str = ""):
-        sql = """SELECT u.*, p.fio, p.personnel_no, p.employment_status
-                 FROM staff_units u LEFT JOIN employees p ON p.id=u.employee_id WHERE 1=1"""
-        args: list[Any] = []
-        if section != "Все": sql += " AND u.section=?"; args.append(section)
-        if search.strip():
-            term=f"%{search.strip()}%"; sql += " AND (u.position LIKE ? OR u.section LIKE ? OR p.fio LIKE ? OR p.personnel_no LIKE ?)"; args += [term]*4
+    def list_staff_units(self, section: str = "Все", search: str = "", filters: dict[str, set[str]] | None = None):
+        """Return SHDS units.  Filtering is intentionally applied to rendered
+        values so vacancies and computed fields behave exactly like Excel."""
         with self.db.connect() as conn:
-            return conn.execute(sql+" ORDER BY CAST(u.unit_number AS INTEGER), u.unit_number",args).fetchall()
+            rows = conn.execute("""SELECT u.*, p.fio, p.personnel_no, p.employment_status,
+                p.birth_date, p.phone, p.email, p.employment_date, p.schedule_type
+                FROM staff_units u LEFT JOIN employees p ON p.id=u.employee_id
+                WHERE ?='Все' OR u.section=?""", (section, section)).fetchall()
+        needle = search.strip().casefold()
+        selected = filters or {}
+        result = []
+        for row in rows:
+            active = row["employee_id"] and row["employment_status"] == "Работает"
+            values = {
+                "№": row["unit_number"], "Отдел": row["department"] or "—",
+                "Отделение": row["section"] or "Не указано", "Группа": row["group_name"] or "—",
+                "Должность": row["position"] or "—", "ФИО": row["fio"] if active else "ВАКАНСИЯ",
+                "Таб. №": row["personnel_no"] if active else "", "Дата рождения": row["birth_date"] or "—",
+                "Возраст": str(calculate_age(row["birth_date"])) if active and calculate_age(row["birth_date"]) is not None else "—",
+                "Телефон": row["phone"] if active else "", "Email": row["email"] if active else "",
+                "Дата приёма": row["employment_date"] if active else "", "График": row["schedule_type"] if active else "",
+                "Вооружение": self.weapon_summary(int(row["employee_id"])) if active else "—",
+            }
+            if needle and not any(needle in str(values[key]).casefold() for key in ("№", "ФИО", "Таб. №", "Должность", "Телефон")):
+                continue
+            if any(values.get(column, "") not in choices for column, choices in selected.items() if choices):
+                continue
+            result.append(row)
+        return sorted(result, key=lambda item: natural_sort_key(item["unit_number"]))
+
+    def staff_filter_values(self, column: str, search: str = "") -> list[str]:
+        rows = self.list_staff_units(search=search)
+        result: set[str] = set()
+        for row in rows:
+            active = row["employee_id"] and row["employment_status"] == "Работает"
+            value = {
+                "№": row["unit_number"], "Отдел": row["department"] or "—", "Отделение": row["section"] or "Не указано",
+                "Группа": row["group_name"] or "—", "Должность": row["position"] or "—", "ФИО": row["fio"] if active else "ВАКАНСИЯ",
+                "Таб. №": row["personnel_no"] if active else "", "Дата рождения": row["birth_date"] or "—",
+                "Возраст": str(calculate_age(row["birth_date"])) if active and calculate_age(row["birth_date"]) is not None else "—",
+                "Вооружение": self.weapon_summary(int(row["employee_id"])) if active else "—",
+            }.get(column, "")
+            result.add(str(value))
+        return sorted(result, key=natural_sort_key)
 
     def save_staff_unit(self, data: dict[str, str], unit_id: int | None = None) -> int:
         if not data.get("section") or (data["section"] == "Не указано" and unit_id is None) or not data.get("position", "").strip(): raise ValueError("Для новой штатной единицы укажите отделение и должность.")
         employee_id = int(data["employee_id"]) if data.get("employee_id") else None
+        group_name = data.get("group_name") or None
+        if data["section"] not in {"1 отделение", "2 отделение"}:
+            group_name = None
         with self.db.connect() as conn:
             if employee_id:
                 occupied=conn.execute("SELECT id FROM staff_units WHERE employee_id=? AND id<>?",(employee_id,unit_id or -1)).fetchone()
                 if occupied: raise ValueError("Этот работник уже занимает другую штатную единицу.")
             if unit_id:
-                conn.execute("UPDATE staff_units SET unit_number=?,department=?,section=?,group_name=?,position=?,employee_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(data["unit_number"].strip(),data.get("department","").strip(),data["section"],data.get("group_name") or None,data["position"].strip(),employee_id,unit_id)); result=unit_id
+                conn.execute("UPDATE staff_units SET unit_number=?,department=?,section=?,group_name=?,position=?,employee_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(data["unit_number"].strip(),data.get("department","").strip(),data["section"],group_name,data["position"].strip(),employee_id,unit_id)); result=unit_id
             else:
-                cur=conn.execute("INSERT INTO staff_units(unit_number,department,section,group_name,position,employee_id) VALUES(?,?,?,?,?,?)",(data["unit_number"].strip(),data.get("department","").strip(),data["section"],data.get("group_name") or None,data["position"].strip(),employee_id)); result=int(cur.lastrowid)
-            if employee_id: conn.execute("UPDATE employees SET department=?,section=?,position=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(data.get("department","").strip(),data["section"],data["position"].strip(),employee_id))
+                cur=conn.execute("INSERT INTO staff_units(unit_number,department,section,group_name,position,employee_id) VALUES(?,?,?,?,?,?)",(data["unit_number"].strip(),data.get("department","").strip(),data["section"],group_name,data["position"].strip(),employee_id)); result=int(cur.lastrowid)
+            if employee_id:
+                conn.execute("UPDATE employees SET department=?,section=?,group_name=?,position=?, archive_date=NULL, employment_status='Работает', updated_at=CURRENT_TIMESTAMP WHERE id=?",(data.get("department","").strip(),data["section"],group_name,data["position"].strip(),employee_id))
             return result
 
     def staff_unit(self, unit_id: int):
         with self.db.connect() as conn: return conn.execute("SELECT * FROM staff_units WHERE id=?",(unit_id,)).fetchone()
+
+    def delete_staff_unit(self, unit_id: int) -> None:
+        with self.db.connect() as conn:
+            unit = conn.execute("SELECT employee_id FROM staff_units WHERE id=?", (unit_id,)).fetchone()
+            if not unit:
+                raise ValueError("Штатная единица не найдена.")
+            if unit["employee_id"]:
+                raise ValueError("Штатная единица занята работником. Сначала освободите штатную единицу.")
+            conn.execute("DELETE FROM staff_units WHERE id=?", (unit_id,))
 
     def staff_metrics(self, target_date: str, section: str = "Все") -> dict[str, Any]:
         units=self.list_staff_units(section)
@@ -176,8 +255,13 @@ class PersonnelService:
         present=[s for s in statuses.values() if s not in absent]
         total={"staff":len(units),"listed":len(occupied),"vacant":len(units)-len(occupied),"absent":len(absent),"present":len(present)}
         by_section={}
-        for name in ["Руководство","1 отделение","2 отделение","Не указано"]:
-            by_section[name]=self.staff_metrics(target_date,name)["total"] if section=="Все" else {}
+        if section == "Все":
+            for name in ["Руководство","1 отделение","2 отделение","Не указано"]:
+                selected = [unit for unit in units if unit["section"] == name]
+                selected_occupied = [unit for unit in selected if unit["employee_id"] and unit["employment_status"] == "Работает"]
+                section_statuses = [statuses[int(unit["employee_id"])] for unit in selected_occupied if int(unit["employee_id"]) in statuses]
+                section_absent = [item for item in section_statuses if item.status in UNAVAILABLE_EVENT_TYPES or item.status == "Выходной"]
+                by_section[name] = {"staff": len(selected), "listed": len(selected_occupied), "vacant": len(selected) - len(selected_occupied), "absent": len(section_absent), "present": len(section_statuses) - len(section_absent)}
         return {"total":total,"absent":absent,"present":present,"employee_sections":employee_sections,"by_section":by_section,"valid":total["listed"]==total["present"]+total["absent"] and total["staff"]==total["listed"]+total["vacant"]}
 
     def unassigned_active_employees(self):
@@ -190,16 +274,16 @@ class PersonnelService:
         return [{"fio":s.fio,"section":metrics["employee_sections"][s.employee_id],"position":s.position,"reason":s.label,"personnel_no":s.personnel_no} for s in metrics[kind]]
 
     def weapon_summary(self, employee_id: int) -> str:
-        rows=self.list_simple_history("weapons",employee_id)
+        rows=reversed(self.list_simple_history("weapons",employee_id))
         return ", ".join(r["weapon_type"] for r in rows) or "—"
 
     def weapon_text(self, employee_id: int) -> str:
-        return "; ".join(f"{r['weapon_type']} №{r['serial_number']}" for r in self.list_simple_history("weapons",employee_id))
+        return "; ".join(f"{r['weapon_type']} №{r['serial_number']}" for r in reversed(self.list_simple_history("weapons",employee_id)))
 
     def archived_employees(self, search: str = ""):
         sql="SELECT * FROM employees WHERE employment_status<>'Работает'"; args=[]
         if search.strip(): sql+=" AND (fio LIKE ? OR personnel_no LIKE ?)"; args=[f"%{search.strip()}%"]*2
-        with self.db.connect() as conn: return conn.execute(sql+" ORDER BY fio",args).fetchall()
+        with self.db.connect() as conn: return conn.execute(sql+" ORDER BY archive_date DESC, fio",args).fetchall()
 
     def latest_check_dates(self, employee_id: int) -> tuple[str | None, str | None]:
         with self.db.connect() as conn:
@@ -309,6 +393,11 @@ class PersonnelService:
             conn.execute("DELETE FROM events WHERE id=?", (event_id,))
 
     def update_event(self, event_id: int, employee_id: int, data: dict[str, str]) -> None:
+        existing = self.get_event(event_id)
+        if not existing:
+            raise ValueError("Событие не найдено.")
+        if int(existing["employee_id"]) != employee_id:
+            raise ValueError("Нельзя изменить работника у существующего события. Удалите запись и создайте новую.")
         self._validate_event(event_id, employee_id, data)
         with self.db.connect() as conn:
             conn.execute("UPDATE events SET event_type=?, subtype=?, start_date=?, end_date=?, location=?, basis=?, notes=? WHERE id=? AND employee_id=?", (data["event_type"], data.get("subtype", ""), data["start_date"], data["end_date"], data.get("location", ""), data.get("basis", ""), data.get("notes", ""), event_id, employee_id))
@@ -344,7 +433,27 @@ class PersonnelService:
         statuses = self.daily_statuses(target_date); grouped: dict[tuple[str, str], list[DailyStatus]] = defaultdict(list)
         for status in statuses: grouped[(status.status, status.subtype)].append(status)
         available = [status for status in statuses if status.status not in UNAVAILABLE_EVENT_TYPES and status.status != "Выходной"]
-        return {"date": target_date, "authorized": int(self.db.get_setting("authorized_headcount", "0") or 0), "listed": len(statuses), "available": available, "statuses": statuses, "grouped": grouped}
+        return {"date": target_date, "listed": len(statuses), "available": available, "statuses": statuses, "grouped": grouped}
+
+    def staff_state_on_date(self, target_date: str) -> list[dict[str, str]]:
+        """The date view reuses the sole daily-status calculation."""
+        units = self.list_staff_units()
+        statuses = {item.employee_id: item for item in self.daily_statuses(target_date)}
+        rows: list[dict[str, str]] = []
+        for unit in units:
+            if not unit["employee_id"] or unit["employment_status"] != "Работает":
+                continue
+            status = statuses.get(int(unit["employee_id"]))
+            if not status:
+                continue
+            absent = status.status in UNAVAILABLE_EVENT_TYPES or status.status == "Выходной"
+            rows.append({
+                "unit_number": unit["unit_number"], "fio": unit["fio"], "section": unit["section"],
+                "group": unit["group_name"] or "—", "position": unit["position"],
+                "state": "Отсутствует" if absent else "На лицо",
+                "reason": status.label if absent else "—",
+            })
+        return rows
 
     def render_daily_text(self, target_date: str) -> str:
         m=self.staff_metrics(target_date)["total"]
@@ -352,7 +461,6 @@ class PersonnelService:
 
     def seed_demo_data(self) -> None:
         if self.list_employees(include_archived=True): raise ValueError("Демо-данные можно добавить только в пустую базу")
-        self.db.set_setting("authorized_headcount", "5")
         demo = [("Иванов Иван Иванович", "000001", "3 отдел", "инспектор", "1990-05-12", "2020-03-01", "2026-08-24"), ("Петров Пётр Петрович", "000002", "3 отдел", "инспектор", "1988-02-03", "2019-06-15", "2026-08-25"), ("Сидоров Алексей Сергеевич", "000003", "3 отдел", "старший инспектор", "1985-09-21", "2018-11-10", "2026-08-26"), ("Орлов Дмитрий Андреевич", "000004", "3 отдел", "инспектор", "1992-01-19", "2023-04-05", "2026-08-27")]
         ids = [self.save_employee({"fio": fio, "personnel_no": number, "department": dep, "position": pos, "birth_date": birth, "employment_date": hired, "factual_address": "", "registration_address": "", "phone": "", "email": "", "schedule_type": "1/3", "schedule_anchor_date": anchor, "employment_status": "Работает"}) for fio, number, dep, pos, birth, hired, anchor in demo]
         self.add_event({"employee_id": str(ids[1]), "event_type": "Отпуск", "subtype": "очередной", "start_date": "2026-08-24", "end_date": "2026-08-31", "location": "", "basis": "", "notes": "Демо"})

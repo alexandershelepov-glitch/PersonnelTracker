@@ -9,7 +9,7 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS employees (
  id INTEGER PRIMARY KEY AUTOINCREMENT, fio TEXT NOT NULL, personnel_no TEXT NOT NULL UNIQUE,
- department TEXT NOT NULL DEFAULT '', position TEXT NOT NULL DEFAULT '', section TEXT NOT NULL DEFAULT 'Не указано',
+ department TEXT NOT NULL DEFAULT '', position TEXT NOT NULL DEFAULT '', section TEXT NOT NULL DEFAULT 'Не указано', group_name TEXT,
  birth_date TEXT, factual_address TEXT NOT NULL DEFAULT '', registration_address TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '', employment_date TEXT,
  schedule_type TEXT NOT NULL DEFAULT 'Не задан', schedule_anchor_date TEXT, employment_status TEXT NOT NULL DEFAULT 'Работает', archive_date TEXT,
  photo_path TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -39,16 +39,24 @@ class Database:
   finally: c.close()
  def initialize(self):
   with self.connect() as c:
+   legacy_without_staff_units = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='staff_units'").fetchone() is None
    c.executescript(SCHEMA)
    cols={r['name'] for r in c.execute('PRAGMA table_info(employees)')}
    if 'photo_path' not in cols: c.execute('ALTER TABLE employees ADD COLUMN photo_path TEXT')
    if 'section' not in cols: c.execute("ALTER TABLE employees ADD COLUMN section TEXT NOT NULL DEFAULT 'Не указано'")
+   if 'group_name' not in cols: c.execute('ALTER TABLE employees ADD COLUMN group_name TEXT')
    unit_cols={r['name'] for r in c.execute('PRAGMA table_info(staff_units)')}
    if 'group_name' not in unit_cols: c.execute('ALTER TABLE staff_units ADD COLUMN group_name TEXT')
-   # Safe 0.3 migration: every current worker gets a separate, editable unit.
-   for p in c.execute("SELECT id,personnel_no,department,section,position FROM employees WHERE employment_status='Работает'").fetchall():
-    c.execute("INSERT OR IGNORE INTO staff_units(unit_number,department,section,position,employee_id) VALUES(?,?,?,?,?)",(f"М-{p['id']}",p['department'],p['section'] or 'Не указано',p['position'] or 'Не указана',p['id']))
-   c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('authorized_headcount','0')")
+   # Safe legacy migration: older installations did not have staff units.
+   # These generated units preserve the visible composition of an old database;
+   # new employees are never assigned a unit automatically.
+   if legacy_without_staff_units:
+    for p in c.execute("SELECT id,personnel_no,department,section,position FROM employees WHERE employment_status='Работает'").fetchall():
+     c.execute("INSERT OR IGNORE INTO staff_units(unit_number,department,section,position,employee_id) VALUES(?,?,?,?,?)",(f"М-{p['id']}",p['department'],p['section'] or 'Не указано',p['position'] or 'Не указана',p['id']))
+   # An archived employee must never continue to occupy an active unit.  Their
+   # card and all related history remain untouched.
+   c.execute("""UPDATE staff_units SET employee_id=NULL, updated_at=CURRENT_TIMESTAMP
+                WHERE employee_id IN (SELECT id FROM employees WHERE employment_status<>'Работает')""")
    c.execute("INSERT INTO settings(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(str(self.CURRENT_VERSION),))
  def get_setting(self,key,default=''):
   with self.connect() as c:
