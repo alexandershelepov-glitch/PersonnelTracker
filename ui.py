@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from config import APP_NAME, EVENT_TYPES, SCHEDULE_TYPES, SECTIONS
 from database import Database
-from services import PersonnelService, calculate_age
+from services import PersonnelService, calculate_age, natural_sort_key
 
 
 NULL_DATE = QDate(1900, 1, 1)
@@ -140,7 +140,8 @@ class EmployeeDialog(QDialog):
         self.age_label=QLabel("Не указан"); personal = QGroupBox("Личные данные"); f = QFormLayout(personal); f.addRow("ФИО*", self.fio); f.addRow("Табельный номер*", self.personnel_no); f.addRow("Дата рождения", self.birth_date); f.addRow("Возраст", self.age_label); f.addRow("Дата начала работы", self.employment_date)
         contacts = QGroupBox("Контакты"); f = QFormLayout(contacts); f.addRow("Телефон", self.phone); f.addRow("E-mail", self.email)
         addresses = QGroupBox("Адреса"); f = QFormLayout(addresses); f.addRow("Фактический адрес", self.factual_address); f.addRow("Адрес регистрации", self.registration_address)
-        service = QGroupBox("Служебные данные"); f = QFormLayout(service); f.addRow("Подразделение", self.department); f.addRow("Отделение", self.section); f.addRow("Должность", self.position); f.addRow("Статус работника", self.employment_status); f.addRow("Дата выбытия", self.archive_date)
+        self.group_label = QLabel("—"); self.group_label.setToolTip("Группа определяется назначенной штатной единицей.")
+        service = QGroupBox("Служебные данные"); f = QFormLayout(service); f.addRow("Подразделение", self.department); f.addRow("Отделение", self.section); f.addRow("Группа", self.group_label); f.addRow("Должность", self.position); f.addRow("Статус работника", self.employment_status); f.addRow("Дата выбытия", self.archive_date)
         schedule = QGroupBox("График работы"); f = QFormLayout(schedule); f.addRow("График", self.schedule_type); f.addRow("Дата рабочей смены", self.schedule_anchor); f.addRow(QLabel("Укажите любую известную рабочую смену. Остальные даты программа рассчитает автоматически."))
         control = QGroupBox("Контроль"); f = QFormLayout(control); f.addRow("Последняя медкомиссия", self._summary_row(self.latest_medical, "Медкомиссия")); f.addRow("Последняя периодическая проверка", self._summary_row(self.latest_periodic, "Периодическая проверка"))
         forms.addWidget(personal, 0, 0); forms.addWidget(service, 0, 1); forms.addWidget(contacts, 1, 0); forms.addWidget(addresses, 1, 1); forms.addWidget(schedule, 2, 0); forms.addWidget(control, 2, 1)
@@ -184,7 +185,7 @@ class EmployeeDialog(QDialog):
         if not person: return
         for key, widget in [("fio", self.fio), ("personnel_no", self.personnel_no), ("effective_department", self.department), ("effective_position", self.position), ("factual_address", self.factual_address), ("registration_address", self.registration_address), ("phone", self.phone), ("email", self.email)]: widget.setText(person[key] or "")
         set_dateedit(self.birth_date, person["birth_date"], True); set_dateedit(self.employment_date, person["employment_date"], True); set_dateedit(self.schedule_anchor, person["schedule_anchor_date"], True); set_dateedit(self.archive_date, person["archive_date"], True)
-        self.schedule_type.setCurrentText(person["schedule_type"] or "Не задан"); self.employment_status.setCurrentText(person["employment_status"] or "Работает"); self.section.setCurrentText(person["effective_section"] or "Не указано")
+        self.schedule_type.setCurrentText(person["schedule_type"] or "Не задан"); self.employment_status.setCurrentText(person["employment_status"] or "Работает"); self.section.setCurrentText(person["effective_section"] or "Не указано"); self.group_label.setText(person["effective_group"] or "—")
         med, periodic = self.service.latest_check_dates(self.employee_id); self.latest_medical.setText(format_date(med)); self.latest_periodic.setText(format_date(periodic))
         today = date.today().isoformat()
         daily = next((item for item in self.service.daily_statuses(today) if item.employee_id == self.employee_id), None)
@@ -398,7 +399,7 @@ class MainWindow(QMainWindow):
         top.addWidget(QLabel("Отделение:")); top.addWidget(self.staff_section); top.addWidget(QLabel("Поиск:")); top.addWidget(self.staff_search,1); [top.addWidget(button) for button in (add_employee,add,edit,delete,archive,columns,reset)]; root.addLayout(top)
         self.staff_metrics_label=QLabel(); self.staff_metrics_label.setStyleSheet("font-size:16px;font-weight:600;padding:8px;"); root.addWidget(self.staff_metrics_label)
         self.staff_headers=["ID","№","Отдел","Отделение","Группа","Должность","ФИО","Таб. №","Дата рождения","Возраст","Телефон","Вооружение","Email","Дата приёма","Последняя МК","Последняя ПП","График"]
-        self.staff_filters: dict[str, set[str]] = {}; self.staff_table=SpreadsheetTable(0,len(self.staff_headers)); self.staff_table.setHorizontalHeaderLabels(self.staff_headers); self.staff_table.setColumnHidden(0,True); style_table(self.staff_table); self.staff_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive); self.staff_table.horizontalHeader().sectionClicked.connect(self.open_staff_filter); self.staff_table.horizontalHeader().sectionResized.connect(self.save_staff_layout); self.staff_table.doubleClicked.connect(self.open_staff_row); self._restore_staff_layout(); root.addWidget(self.staff_table); self.tabs.addTab(tab,"ШДС")
+        self.staff_filters: dict[str, set[str]] = {}; self.staff_table=SpreadsheetTable(0,len(self.staff_headers)); self.staff_table.setHorizontalHeaderLabels(self.staff_headers); self.staff_table.setColumnHidden(0,True); style_table(self.staff_table); self.staff_table.setSelectionMode(QTableWidget.ExtendedSelection); header=self.staff_table.horizontalHeader(); header.setSectionResizeMode(QHeaderView.Interactive); header.setSortIndicatorShown(True); header.sectionClicked.connect(self.sort_staff_by_column); header.setContextMenuPolicy(Qt.CustomContextMenu); header.customContextMenuRequested.connect(self.open_staff_filter_menu); header.sectionResized.connect(self.save_staff_layout); self.staff_table.doubleClicked.connect(self.open_staff_row); self._restore_staff_layout(); root.addWidget(self.staff_table); self.tabs.addTab(tab,"ШДС")
     def _build_events_tab(self):
         tab = QWidget(); root = QVBoxLayout(tab); top = QHBoxLayout(); self.event_search = QLineEdit(); self.event_search.setPlaceholderText("Поиск по работнику или событию..."); self.event_search.textChanged.connect(self.refresh_events); add = QPushButton("Добавить"); add.clicked.connect(self.add_event); edit = QPushButton("Изменить"); edit.clicked.connect(self.edit_event); delete = QPushButton("Удалить"); delete.clicked.connect(self.delete_event); top.addWidget(QLabel("Поиск:")); top.addWidget(self.event_search, 1); top.addWidget(add); top.addWidget(edit); top.addWidget(delete); root.addLayout(top); self.event_table = QTableWidget(0, 8); self.event_table.setHorizontalHeaderLabels(["ID", "Работник", "Категория", "Подтип", "С", "По", "Место", "Основание"]); self.event_table.setColumnHidden(0, True); style_table(self.event_table); self.event_table.doubleClicked.connect(self.edit_event); root.addWidget(self.event_table); self.tabs.addTab(tab, "Занятость и отсутствия")
     def _build_summary_tab(self):
@@ -411,19 +412,47 @@ class MainWindow(QMainWindow):
     def refresh_all(self): self.refresh_staff(); self.refresh_events(); self.refresh_summary(); self.refresh_state()
     def refresh_staff(self):
         if not hasattr(self,'staff_table'): return
-        rows=self.service.list_staff_units(self.staff_section.currentText(),self.staff_search.text(),self.staff_filters); self.staff_table.setSortingEnabled(False); self.staff_table.setRowCount(len(rows))
+        rows=self.service.list_staff_units(self.staff_section.currentText(),self.staff_search.text(),self.staff_filters); self.staff_table.setRowCount(len(rows))
         for i,u in enumerate(rows):
-            employee=self.service.get_employee(int(u['employee_id'])) if u['employee_id'] and u['employment_status']=='Работает' else None; birth=employee['birth_date'] if employee else None; age='—'
-            if birth:
-                age=str(calculate_age(birth))
+            employee=self.service.get_employee(int(u['employee_id'])) if u['employee_id'] and u['employment_status']=='Работает' else None; birth=employee['birth_date'] if employee else None; age=calculate_age(birth) if birth else None
             med, periodic = self.service.latest_check_dates(int(u['employee_id'])) if employee else (None, None)
-            values=[u['id'],u['unit_number'],u['department'] or '—',u['section'] or 'Не указано',u['group_name'] or '—',u['position'],employee['fio'] if employee else 'ВАКАНСИЯ',employee['personnel_no'] if employee else '',birth or '—',age,employee['phone'] if employee else '',self.service.weapon_summary(int(u['employee_id'])) if employee else '—',employee['email'] if employee else '',employee['employment_date'] if employee else '',med or '—',periodic or '—',employee['schedule_type'] if employee else '']
+            values=[u['id'],u['unit_number'],u['department'] or '—',u['section'] or 'Не указано',u['group_name'] or '—',u['position'],employee['fio'] if employee else 'ВАКАНСИЯ',(employee['personnel_no'] if employee else '') or '—',birth or '—',str(age) if age is not None else '—',(employee['phone'] if employee else '') or '—',self.service.weapon_summary(int(u['employee_id'])) if employee else '—',(employee['email'] if employee else '') or '—',(employee['employment_date'] if employee else '') or '—',med or '—',periodic or '—',(employee['schedule_type'] if employee else '') or '—']
+            keys=[(0,int(u['id'])),(1,natural_sort_key(u['unit_number'])),None,None,None,None,None,(1,natural_sort_key(employee['personnel_no'])) if employee else (2,),(0,birth) if birth else (2,),(0,age) if age is not None else (2,),None,None,None,(0,employee['employment_date']) if employee and employee['employment_date'] else (2,),(0,med) if med else (2,),(0,periodic) if periodic else (2,),None]
             for j,v in enumerate(values):
                 item=QTableWidgetItem(str(v or ''))
+                if keys[j] is not None: item.setData(Qt.UserRole,keys[j])
                 if not employee: item.setBackground(QColor('#fff4d6'))
                 if j == 3 and u['section'] == 'Не указано': item.setBackground(QColor('#ffe1e1'))
                 self.staff_table.setItem(i,j,item)
+        self._apply_staff_sort(); self._update_staff_header_markers()
         metrics_all=self.service.staff_metrics(date.today().isoformat())['total']; undistributed=self.service.staff_metrics(date.today().isoformat(),"Не указано")['total']['staff']; text=f"ПО ШТАТУ: {metrics_all['staff']}     ПО СПИСКУ: {metrics_all['listed']}     ВАКАНСИИ: {metrics_all['vacant']}     ПОКАЗАНО: {len(rows)}"; self.staff_metrics_label.setText(text + (f"     НЕ РАСПРЕДЕЛЕНО: {undistributed}" if undistributed else ""))
+    def _update_staff_header_markers(self):
+        labels=[header + (" ▼" if header in self.staff_filters and self.staff_filters[header] else "") for header in self.staff_headers]
+        self.staff_table.setHorizontalHeaderLabels(labels)
+    def open_staff_filter_menu(self, position):
+        index=self.staff_table.horizontalHeader().logicalIndexAt(position)
+        if index>=0: self.open_staff_filter(index)
+    def _staff_sort_key(self, item: QTableWidgetItem | None):
+        key = item.data(Qt.UserRole) if item else None
+        if isinstance(key, tuple): return (0, key)
+        return (1, item.text().casefold() if item else "")
+    def sort_staff_by_column(self, column: int):
+        if getattr(self, '_staff_sort_column', None) == column and self._staff_sort_order == Qt.AscendingOrder:
+            self._staff_sort_order = Qt.DescendingOrder
+        else:
+            self._staff_sort_column, self._staff_sort_order = column, Qt.AscendingOrder
+        self._apply_staff_sort()
+    def _apply_staff_sort(self):
+        column = getattr(self, '_staff_sort_column', None)
+        if column is None: return
+        table = self.staff_table
+        rows = [[table.takeItem(r, c) for c in range(table.columnCount())] for r in range(table.rowCount())]
+        table.setRowCount(0)
+        rows.sort(key=lambda items: self._staff_sort_key(items[column]), reverse=self._staff_sort_order == Qt.DescendingOrder)
+        table.setRowCount(len(rows))
+        for r, items in enumerate(rows):
+            for c, item in enumerate(items): table.setItem(r, c, item)
+        table.horizontalHeader().setSortIndicator(column, self._staff_sort_order)
     def add_staff(self):
         if StaffUnitDialog(self.service,parent=self).exec(): self.refresh_all()
     def edit_staff(self):

@@ -171,6 +171,41 @@ class PersonnelService:
         self.save_employee(data, employee_id)
 
     # ---------- staff structure ----------
+    EMPTY_PLACEHOLDER = "—"
+
+    def _staff_row_values(self, row) -> dict[str, str]:
+        """Rendered value of every visible SHDS column for one staff unit row.
+
+        Shared by list/filter logic and the filter-value generator so the UI
+        can never offer a filter the service cannot evaluate.  Empty values
+        use the single EMPTY_PLACEHOLDER consistently."""
+        active = bool(row["employee_id"] and row["employment_status"] == "Работает")
+        def employee_field(name: str) -> str:
+            value = row[name] if active else None
+            return str(value) if value else self.EMPTY_PLACEHOLDER
+        age = calculate_age(row["birth_date"]) if active else None
+        med = periodic = None
+        if active:
+            med, periodic = self.latest_check_dates(int(row["employee_id"]))
+        return {
+            "№": str(row["unit_number"] or self.EMPTY_PLACEHOLDER),
+            "Отдел": str(row["department"] or self.EMPTY_PLACEHOLDER),
+            "Отделение": str(row["section"] or "Не указано"),
+            "Группа": str(row["group_name"] or self.EMPTY_PLACEHOLDER),
+            "Должность": str(row["position"] or self.EMPTY_PLACEHOLDER),
+            "ФИО": str(row["fio"]) if active and row["fio"] else "ВАКАНСИЯ",
+            "Таб. №": employee_field("personnel_no"),
+            "Дата рождения": employee_field("birth_date"),
+            "Возраст": str(age) if age is not None else self.EMPTY_PLACEHOLDER,
+            "Телефон": employee_field("phone"),
+            "Вооружение": self.weapon_summary(int(row["employee_id"])) if active else self.EMPTY_PLACEHOLDER,
+            "Email": employee_field("email"),
+            "Дата приёма": employee_field("employment_date"),
+            "Последняя МК": med or self.EMPTY_PLACEHOLDER,
+            "Последняя ПП": periodic or self.EMPTY_PLACEHOLDER,
+            "График": employee_field("schedule_type"),
+        }
+
     def list_staff_units(self, section: str = "Все", search: str = "", filters: dict[str, set[str]] | None = None):
         """Return SHDS units.  Filtering is intentionally applied to rendered
         values so vacancies and computed fields behave exactly like Excel."""
@@ -183,17 +218,7 @@ class PersonnelService:
         selected = filters or {}
         result = []
         for row in rows:
-            active = row["employee_id"] and row["employment_status"] == "Работает"
-            values = {
-                "№": row["unit_number"], "Отдел": row["department"] or "—",
-                "Отделение": row["section"] or "Не указано", "Группа": row["group_name"] or "—",
-                "Должность": row["position"] or "—", "ФИО": row["fio"] if active else "ВАКАНСИЯ",
-                "Таб. №": row["personnel_no"] if active else "", "Дата рождения": row["birth_date"] or "—",
-                "Возраст": str(calculate_age(row["birth_date"])) if active and calculate_age(row["birth_date"]) is not None else "—",
-                "Телефон": row["phone"] if active else "", "Email": row["email"] if active else "",
-                "Дата приёма": row["employment_date"] if active else "", "График": row["schedule_type"] if active else "",
-                "Вооружение": self.weapon_summary(int(row["employee_id"])) if active else "—",
-            }
+            values = self._staff_row_values(row)
             if needle and not any(needle in str(values[key]).casefold() for key in ("№", "ФИО", "Таб. №", "Должность", "Телефон")):
                 continue
             if any(values.get(column, "") not in choices for column, choices in selected.items() if choices):
@@ -203,20 +228,12 @@ class PersonnelService:
 
     def staff_filter_values(self, column: str, search: str = "") -> list[str]:
         rows = self.list_staff_units(search=search)
-        result: set[str] = set()
-        for row in rows:
-            active = row["employee_id"] and row["employment_status"] == "Работает"
-            value = {
-                "№": row["unit_number"], "Отдел": row["department"] or "—", "Отделение": row["section"] or "Не указано",
-                "Группа": row["group_name"] or "—", "Должность": row["position"] or "—", "ФИО": row["fio"] if active else "ВАКАНСИЯ",
-                "Таб. №": row["personnel_no"] if active else "", "Дата рождения": row["birth_date"] or "—",
-                "Возраст": str(calculate_age(row["birth_date"])) if active and calculate_age(row["birth_date"]) is not None else "—",
-                "Вооружение": self.weapon_summary(int(row["employee_id"])) if active else "—",
-            }.get(column, "")
-            result.add(str(value))
+        result: set[str] = {self._staff_row_values(row).get(column, self.EMPTY_PLACEHOLDER) for row in rows}
         return sorted(result, key=natural_sort_key)
 
     def save_staff_unit(self, data: dict[str, str], unit_id: int | None = None) -> int:
+        unit_number = (data.get("unit_number") or "").strip()
+        if not unit_number: raise ValueError("Номер штатной единицы обязателен.")
         if not data.get("section") or (data["section"] == "Не указано" and unit_id is None) or not data.get("position", "").strip(): raise ValueError("Для новой штатной единицы укажите отделение и должность.")
         employee_id = int(data["employee_id"]) if data.get("employee_id") else None
         group_name = data.get("group_name") or None

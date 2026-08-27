@@ -39,6 +39,11 @@ if [ ! -x "$PYTHON" ]; then
   exit 1
 fi
 
+# Qt не видит dylib-плагины с установленным Finder-флагом hidden: каталог
+# сканируется как пустой, и пропадают платформенный плагин cocoa и JPEG.
+# .venv и так не виден в Finder из-за точки в имени, поэтому снимаем флаг.
+chflags -R nohidden .venv 2>/dev/null || true
+
 if ! run_logged "$PYTHON" -m pip install --disable-pip-version-check -r requirements.txt; then
   log "ОШИБКА: не удалось установить зависимости. Проверьте подключение к интернету и повторите запуск."
   exit 1

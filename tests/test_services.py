@@ -264,6 +264,59 @@ class PersonnelServiceTests(unittest.TestCase):
         self.assertEqual(metrics["by_section"]["Не указано"]["staff"], 1)
         self.assertEqual(sum(item["staff"] for item in metrics["by_section"].values()), metrics["total"]["staff"])
 
+    def test_empty_staff_unit_number_rejected(self):
+        base = {"department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": None}
+        for bad in ("", "   ", None):
+            with self.assertRaises(ValueError, msg=f"unit_number={bad!r}"):
+                self.svc.save_staff_unit({**base, "unit_number": bad})
+        unit = self.svc.save_staff_unit({**base, "unit_number": "7"})
+        with self.assertRaises(ValueError):
+            self.svc.save_staff_unit({**base, "unit_number": "   "}, unit)
+
+    def test_natural_sort_of_legacy_unit_numbers(self):
+        for number in ("М-10", "М-2", "М-1", "10", "2"):
+            self.svc.save_staff_unit({"unit_number": number, "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": None})
+        ordered = [row["unit_number"] for row in self.svc.list_staff_units()]
+        self.assertEqual(ordered, ["2", "10", "М-1", "М-2", "М-10"])
+
+    def test_group_comes_from_staff_unit(self):
+        unit = self.svc.save_staff_unit({"unit_number": "21", "department": "3 отдел", "section": "1 отделение", "group_name": "2 группа", "position": "инспектор", "employee_id": self.emp})
+        self.assertEqual(self.svc.get_employee(self.emp)["effective_group"], "2 группа")
+        self.svc.save_staff_unit({"unit_number": "21", "department": "3 отдел", "section": "1 отделение", "group_name": "4 группа", "position": "инспектор", "employee_id": self.emp}, unit)
+        self.assertEqual(self.svc.get_employee(self.emp)["effective_group"], "4 группа")
+        self.svc.save_staff_unit({"unit_number": "21", "department": "3 отдел", "section": "Руководство", "group_name": "", "position": "инспектор", "employee_id": self.emp}, unit)
+        self.assertEqual(self.svc.get_employee(self.emp)["effective_group"], "—")
+
+    def test_filter_values_cover_all_visible_columns(self):
+        self.svc.save_staff_unit({"unit_number": "31", "department": "3 отдел", "section": "1 отделение", "group_name": "1 группа", "position": "инспектор", "employee_id": self.emp})
+        self.svc.add_medical_check(self.emp, "2026-08-20")
+        self.svc.add_periodic_check(self.emp, "2026-08-21", "годен")
+        headers = ["№", "Отдел", "Отделение", "Группа", "Должность", "ФИО", "Таб. №", "Дата рождения", "Возраст", "Телефон", "Вооружение", "Email", "Дата приёма", "Последняя МК", "Последняя ПП", "График"]
+        for column in headers:
+            values = self.svc.staff_filter_values(column)
+            self.assertTrue(values, f"Фильтр колонки {column!r} пуст")
+        self.assertEqual(self.svc.staff_filter_values("Последняя МК"), ["2026-08-20"])
+        self.assertEqual(self.svc.staff_filter_values("Последняя ПП"), ["2026-08-21"])
+        self.assertEqual(self.svc.staff_filter_values("График"), ["1/3"])
+        self.assertEqual(self.svc.staff_filter_values("Группа"), ["1 группа"])
+
+    def test_filters_apply_to_new_columns_and_use_placeholder(self):
+        self.svc.save_staff_unit({"unit_number": "41", "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": self.emp})
+        self.svc.save_staff_unit({"unit_number": "42", "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": None})
+        filtered = self.svc.list_staff_units(filters={"График": {"1/3"}})
+        self.assertEqual([row["unit_number"] for row in filtered], ["41"])
+        placeholder = self.svc.staff_filter_values("Телефон")
+        self.assertIn("—", placeholder)  # пустые значения дают единый маркер
+        filtered = self.svc.list_staff_units(filters={"Телефон": {"—"}})
+        self.assertEqual([row["unit_number"] for row in filtered], ["41", "42"])
+
+    def test_metrics_unchanged_by_audit_fixes(self):
+        self.svc.save_staff_unit({"unit_number": "51", "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": self.emp})
+        self.svc.save_staff_unit({"unit_number": "52", "department": "3 отдел", "section": "2 отделение", "position": "инспектор", "employee_id": None})
+        metrics = self.svc.staff_metrics("2026-08-24")
+        self.assertEqual(metrics["total"], {"staff": 2, "listed": 1, "vacant": 1, "absent": 0, "present": 1})
+        self.assertTrue(metrics["valid"])
+
 
 if __name__ == "__main__":
     unittest.main()
