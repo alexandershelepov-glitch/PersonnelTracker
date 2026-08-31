@@ -139,7 +139,7 @@ class PersonnelServiceTests(unittest.TestCase):
             weapon = check.execute("SELECT * FROM weapons WHERE id=1").fetchone()
         self.assertIn("photo_path", columns)
         self.assertEqual(weapon["model"], "ПМ")
-        self.assertEqual(migrated.get_setting("schema_version"), "4")
+        self.assertEqual(migrated.get_setting("schema_version"), "5")
 
     def test_staff_unit_and_section_metrics(self):
         second = self.svc.save_employee({
@@ -167,7 +167,7 @@ class PersonnelServiceTests(unittest.TestCase):
             conn.execute("DROP TABLE staff_units")
             conn.execute("UPDATE settings SET value='3' WHERE key='schema_version'")
         migrated = Database(path)
-        self.assertEqual(migrated.get_setting("schema_version"), "4")
+        self.assertEqual(migrated.get_setting("schema_version"), "5")
         self.assertEqual(PersonnelService(migrated).get_employee(employee_id)["section"], "Не указано")
         self.assertEqual(len(PersonnelService(migrated).list_staff_units()), 1)
 
