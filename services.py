@@ -37,6 +37,17 @@ def natural_sort_key(value: str | None) -> tuple:
     return tuple(int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", value or ""))
 
 
+class BatchConflictError(ValueError):
+    """Raised when a batch assignment overlaps existing events.
+
+    Carries the full conflict list so the UI can show every clashing
+    record without the service deciding what is acceptable."""
+
+    def __init__(self, conflicts: list[dict[str, Any]]):
+        super().__init__("Обнаружены пересечения с существующими событиями.")
+        self.conflicts = conflicts
+
+
 @dataclass(frozen=True)
 class DailyStatus:
     employee_id: int
@@ -241,7 +252,7 @@ class PersonnelService:
             group_name = None
         with self.db.connect() as conn:
             if employee_id:
-                occupied=conn.execute("SELECT id FROM staff_units WHERE employee_id=? AND id<>?",(employee_id,unit_id or -1)).fetchone()
+                occupied=conn.execute("SELECT id FROM staff_units WHERE employee_id=? AND id<>",(employee_id,unit_id or -1)).fetchone()
                 if occupied: raise ValueError("Этот работник уже занимает другую штатную единицу.")
             if unit_id:
                 conn.execute("UPDATE staff_units SET unit_number=?,department=?,section=?,group_name=?,position=?,employee_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(data["unit_number"].strip(),data.get("department","").strip(),data["section"],group_name,data["position"].strip(),employee_id,unit_id)); result=unit_id
@@ -407,12 +418,17 @@ class PersonnelService:
 
     def delete_event(self, event_id: int) -> None:
         with self.db.connect() as conn:
+            row = conn.execute("SELECT batch_id FROM events WHERE id=?", (event_id,)).fetchone()
+            if row and row["batch_id"]:
+                raise ValueError("Запись входит в групповое назначение. Удалить её можно только вместе со всей группой.")
             conn.execute("DELETE FROM events WHERE id=?", (event_id,))
 
     def update_event(self, event_id: int, employee_id: int, data: dict[str, str]) -> None:
         existing = self.get_event(event_id)
         if not existing:
             raise ValueError("Событие не найдено.")
+        if existing["batch_id"]:
+            raise ValueError("Запись входит в групповое назначение. Изменить её можно только вместе со всей группой.")
         if int(existing["employee_id"]) != employee_id:
             raise ValueError("Нельзя изменить работника у существующего события. Удалите запись и создайте новую.")
         self._validate_event(event_id, employee_id, data)
@@ -422,6 +438,91 @@ class PersonnelService:
     def events_for_employee(self, employee_id: int):
         with self.db.connect() as conn:
             return conn.execute("SELECT * FROM events WHERE employee_id=? ORDER BY start_date DESC, id DESC", (employee_id,)).fetchall()
+
+    # ---------- batch (group) event assignments ----------
+    def find_event_conflicts(self, employee_ids: list[int], start_date: str, end_date: str,
+                             exclude_batch_id: str | None = None) -> list[dict[str, Any]]:
+        """Every overlap of the period with existing events of the employees.
+
+        Reuses the single-event rule: any intersection of closed intervals is
+        a conflict.  ``exclude_batch_id`` keeps a batch from conflicting with
+        itself when the whole group is edited."""
+        conflicts: list[dict[str, Any]] = []
+        with self.db.connect() as conn:
+            for employee_id in employee_ids:
+                sql = """SELECT e.*, p.fio FROM events e JOIN employees p ON p.id=e.employee_id
+                         WHERE e.employee_id=? AND e.start_date <= ? AND e.end_date >= ?"""
+                args: list[Any] = [int(employee_id), end_date, start_date]
+                if exclude_batch_id is not None:
+                    sql += " AND (e.batch_id IS NULL OR e.batch_id<>?)"
+                    args.append(exclude_batch_id)
+                for row in conn.execute(sql + " ORDER BY e.start_date, e.id", args).fetchall():
+                    conflicts.append({
+                        "employee_id": int(employee_id), "fio": row["fio"], "event_id": row["id"],
+                        "event_type": row["event_type"], "subtype": row["subtype"],
+                        "start_date": row["start_date"], "end_date": row["end_date"],
+                        "notes": row["notes"],
+                    })
+        return conflicts
+
+    def create_batch_events(self, employee_ids: list[int], data: dict[str, str]) -> str:
+        """Create one ordinary event per employee in a single transaction.
+
+        All-or-nothing: if any selected employee has a conflicting event,
+        nothing is created.  Every record gets the same fresh UUID batch_id."""
+        unique_ids = [int(value) for value in dict.fromkeys(employee_ids)]
+        if len(unique_ids) < 2:
+            raise ValueError("Для группового назначения выберите не менее двух работников.")
+        if data["end_date"] < data["start_date"]:
+            raise ValueError("Дата окончания не может быть раньше даты начала")
+        with self.db.connect() as conn:
+            placeholders = ",".join("?" for _ in unique_ids)
+            found = conn.execute(f"SELECT COUNT(*) AS n FROM employees WHERE id IN ({placeholders})", unique_ids).fetchone()["n"]
+            if found != len(unique_ids):
+                raise ValueError("В выборке есть несуществующие работники.")
+        conflicts = self.find_event_conflicts(unique_ids, data["start_date"], data["end_date"])
+        if conflicts:
+            raise BatchConflictError(conflicts)
+        batch_id = uuid4().hex
+        with self.db.connect() as conn:
+            for employee_id in unique_ids:
+                conn.execute(
+                    "INSERT INTO events(employee_id, event_type, subtype, start_date, end_date, location, basis, notes, batch_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (employee_id, data["event_type"], data.get("subtype", ""), data["start_date"], data["end_date"],
+                     data.get("location", ""), data.get("basis", ""), data.get("notes", ""), batch_id))
+        return batch_id
+
+    def list_batch_events(self, batch_id: str):
+        with self.db.connect() as conn:
+            return conn.execute("""SELECT e.*, p.fio, p.personnel_no, p.position, p.department, p.section
+                FROM events e JOIN employees p ON p.id=e.employee_id
+                WHERE e.batch_id=? ORDER BY p.fio COLLATE NOCASE""", (batch_id,)).fetchall()
+
+    def update_batch_events(self, batch_id: str, data: dict[str, str]) -> None:
+        """Update shared fields of the whole batch in one transaction.
+
+        The group composition never changes here; the batch is excluded from
+        its own conflict check so it cannot conflict with itself."""
+        events = self.list_batch_events(batch_id)
+        if not events:
+            raise ValueError("Группа не найдена.")
+        if data["end_date"] < data["start_date"]:
+            raise ValueError("Дата окончания не может быть раньше даты начала")
+        employee_ids = [int(event["employee_id"]) for event in events]
+        conflicts = self.find_event_conflicts(employee_ids, data["start_date"], data["end_date"], exclude_batch_id=batch_id)
+        if conflicts:
+            raise BatchConflictError(conflicts)
+        with self.db.connect() as conn:
+            conn.execute(
+                "UPDATE events SET event_type=?, subtype=?, start_date=?, end_date=?, location=?, basis=?, notes=? WHERE batch_id=?",
+                (data["event_type"], data.get("subtype", ""), data["start_date"], data["end_date"],
+                 data.get("location", ""), data.get("basis", ""), data.get("notes", ""), batch_id))
+
+    def delete_batch_events(self, batch_id: str) -> int:
+        """Delete every record of the batch in one transaction."""
+        with self.db.connect() as conn:
+            cursor = conn.execute("DELETE FROM events WHERE batch_id=?", (batch_id,))
+            return int(cursor.rowcount)
 
     # ---------- calculation: unchanged from 0.2 ----------
     @staticmethod
