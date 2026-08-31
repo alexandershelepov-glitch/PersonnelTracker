@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from config import APP_NAME, EVENT_TYPES, SCHEDULE_TYPES, SECTIONS
 from database import Database
-from services import PersonnelService, calculate_age, natural_sort_key
+from services import BatchConflictError, PersonnelService, calculate_age, natural_sort_key
 
 
 NULL_DATE = QDate(1900, 1, 1)
@@ -303,6 +303,11 @@ class EmployeeDialog(QDialog):
     def edit_record(self, section: str) -> None:
         if not self._require_saved() or (record_id := self._record_id(section)) is None: return
         if section == "Отсутствия":
+            event = self.service.get_event(record_id)
+            if event and event["batch_id"]:
+                # Часть группы отдельно не редактируется — открываем всю группу.
+                if BatchGroupDialog(self.service, event["batch_id"], self).exec(): self.refresh_records(); self.load_employee()
+                return
             if EventDialog(self.service, self, employee_id=self.employee_id, event_id=record_id).exec(): self.refresh_records(); self.load_employee()
             return
         table = {"Медкомиссия": "medical_checks", "Периодическая проверка": "periodic_checks", "Обучение": "trainings", "Оружие": "weapons"}[section]; record = self.service.get_history_record(table, record_id, self.employee_id)
@@ -316,7 +321,14 @@ class EmployeeDialog(QDialog):
     def delete_record(self, section: str) -> None:
         if not self._require_saved() or (record_id := self._record_id(section)) is None: return
         if QMessageBox.question(self, "Удалить запись", "Удалить выбранную запись?") != QMessageBox.Yes: return
-        if section == "Отсутствия": self.service.delete_event(record_id)
+        if section == "Отсутствия":
+            event = self.service.get_event(record_id)
+            if event and event["batch_id"]:
+                # Удалить можно только всю группу целиком.
+                if QMessageBox.question(self, "Групповое назначение", "Запись входит в групповое назначение. Отдельно удалить её нельзя. Открыть группу?") == QMessageBox.Yes:
+                    if BatchGroupDialog(self.service, event["batch_id"], self).exec(): self.refresh_records(); self.load_employee()
+                return
+            self.service.delete_event(record_id)
         else: self.service.delete_history_record({"Медкомиссия": "medical_checks", "Периодическая проверка": "periodic_checks", "Обучение": "trainings", "Оружие": "weapons"}[section], record_id, self.employee_id)
         self.refresh_records(); self.load_employee()
 
@@ -362,6 +374,208 @@ class EventDialog(QDialog):
         except ValueError as exc: QMessageBox.warning(self, "Нельзя сохранить", str(exc))
 
 
+class BatchEventDialog(QDialog):
+    """Групповое назначение одного события нескольким работникам (v0.5, этап 1).
+
+    Создаёт обычные одиночные записи с общим batch_id.  В режиме редактирования
+    (batch_id задан) меняет только параметры события — состав группы неизменен."""
+    def __init__(self, service: PersonnelService, parent=None, preselected: list[int] | None = None, batch_id: str | None = None):
+        super().__init__(parent)
+        self.service, self.batch_id = service, batch_id
+        self.selected: set[int] = {int(value) for value in (preselected or [])}
+        editing = batch_id is not None
+        self.setWindowTitle("Изменить группу" if editing else "Назначить нескольким")
+        self.resize(880, 640)
+        root = QVBoxLayout(self)
+
+        people_box = QGroupBox("Работники")
+        people = QVBoxLayout(people_box)
+        controls = QHBoxLayout()
+        self.search = QLineEdit(); self.search.setPlaceholderText("Поиск по ФИО...")
+        self.section_filter = QComboBox(); self.section_filter.addItems(["Все", *SECTIONS])
+        self.counter = QLabel()
+        controls.addWidget(QLabel("Поиск:")); controls.addWidget(self.search, 1)
+        controls.addWidget(QLabel("Отделение:")); controls.addWidget(self.section_filter)
+        controls.addWidget(self.counter); people.addLayout(controls)
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["✓", "ФИО", "Должность", "Отделение", "Подразделение"])
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        people.addWidget(self.table)
+        root.addWidget(people_box, 1)
+
+        event_box = QGroupBox("Параметры события")
+        form = QFormLayout(event_box)
+        self.event_type = QComboBox(); self.event_type.addItems(EVENT_TYPES.keys())
+        self.event_type.currentTextChanged.connect(self.update_subtypes)
+        self.subtype = QComboBox()
+        self.start, self.end = new_date_edit(), new_date_edit()
+        self.location, self.basis = QLineEdit(), QLineEdit()
+        self.notes = QTextEdit(); self.notes.setFixedHeight(60)
+        for label, field in [("Категория", self.event_type), ("Подтип", self.subtype), ("С", self.start), ("По", self.end), ("Место / объект", self.location), ("Основание", self.basis), ("Примечание", self.notes)]:
+            form.addRow(label, field)
+        root.addWidget(event_box)
+
+        buttons = russian_dialog_buttons("Сохранить")
+        buttons.accepted.connect(self.save); buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+        self.search.textChanged.connect(self.rebuild_table)
+        self.section_filter.currentTextChanged.connect(self.rebuild_table)
+        self.table.itemChanged.connect(self._item_changed)
+        self._people = []
+        for person in service.list_employees():
+            details = service.get_employee(int(person["id"])) or person
+            self._people.append((int(person["id"]), person["fio"], details["effective_position"] or "—", details["effective_section"] or "—", details["effective_department"] or "—"))
+        if editing:
+            events = service.list_batch_events(batch_id)
+            self.selected = {int(event["employee_id"]) for event in events}
+            for widget in (self.search, self.section_filter, self.table):
+                widget.setEnabled(False)
+            if events:
+                first = events[0]
+                self.event_type.setCurrentText(first["event_type"]); self.update_subtypes(first["event_type"])
+                self.subtype.setCurrentText(first["subtype"])
+                set_dateedit(self.start, first["start_date"]); set_dateedit(self.end, first["end_date"])
+                self.location.setText(first["location"]); self.basis.setText(first["basis"]); self.notes.setPlainText(first["notes"])
+        self.update_subtypes(self.event_type.currentText())
+        self.rebuild_table()
+
+    def update_subtypes(self, event_type: str):
+        self.subtype.clear(); self.subtype.addItems(EVENT_TYPES.get(event_type, [])); self.subtype.setEnabled(bool(EVENT_TYPES.get(event_type)))
+
+    def rebuild_table(self) -> None:
+        needle = self.search.text().strip().casefold()
+        section = self.section_filter.currentText()
+        self.table.blockSignals(True)
+        self.table.setRowCount(0)
+        for employee_id, fio, position, emp_section, department in self._people:
+            if needle and needle not in fio.casefold():
+                continue
+            if section != "Все" and emp_section != section:
+                continue
+            row = self.table.rowCount(); self.table.insertRow(row)
+            check = QTableWidgetItem()
+            check.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            check.setCheckState(Qt.Checked if employee_id in self.selected else Qt.Unchecked)
+            check.setData(Qt.UserRole, employee_id)
+            self.table.setItem(row, 0, check)
+            for column, value in enumerate((fio, position, emp_section, department), 1):
+                self.table.setItem(row, column, QTableWidgetItem(value))
+        self.table.blockSignals(False)
+        self._update_counter()
+
+    def _item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() != 0:
+            return
+        employee_id = item.data(Qt.UserRole)
+        if employee_id is None:
+            return
+        if item.checkState() == Qt.Checked:
+            self.selected.add(int(employee_id))
+        else:
+            self.selected.discard(int(employee_id))
+        self._update_counter()
+
+    def _update_counter(self) -> None:
+        self.counter.setText(f"Выбрано: {len(self.selected)}")
+
+    def _event_data(self) -> dict:
+        return {
+            "event_type": self.event_type.currentText(),
+            "subtype": self.subtype.currentText() if self.subtype.isEnabled() else "",
+            "start_date": self.start.date().toString("yyyy-MM-dd"),
+            "end_date": self.end.date().toString("yyyy-MM-dd"),
+            "location": self.location.text().strip(),
+            "basis": self.basis.text().strip(),
+            "notes": self.notes.toPlainText().strip(),
+        }
+
+    def show_conflicts(self, conflicts: list[dict]) -> None:
+        lines = []
+        for item in conflicts:
+            label = item["event_type"] + (f" / {item['subtype']}" if item["subtype"] else "")
+            line = f"• {item['fio']}: {label}, {format_date(item['start_date'])} — {format_date(item['end_date'])}"
+            if item.get("notes"):
+                line += f" ({item['notes']})"
+            lines.append(line)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Конфликт периодов")
+        box.setText("Группа не создана: у части работников есть пересечения с существующими событиями.\nНи одна запись не создана. Измените список работников или период.")
+        box.setDetailedText("\n".join(lines))
+        box.exec()
+
+    def save(self):
+        data = self._event_data()
+        try:
+            if self.batch_id:
+                self.service.update_batch_events(self.batch_id, data)
+            else:
+                ids = sorted(self.selected)
+                if len(ids) < 2:
+                    QMessageBox.warning(self, "Групповое назначение", "Выберите не менее двух работников. Одиночное назначение выполняется кнопкой «Добавить».")
+                    return
+                self.service.create_batch_events(ids, data)
+            self.accept()
+        except BatchConflictError as exc:
+            self.show_conflicts(exc.conflicts)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Нельзя сохранить", str(exc))
+
+
+class BatchGroupDialog(QDialog):
+    """Просмотр группового назначения и действия над всей группой."""
+    def __init__(self, service: PersonnelService, batch_id: str, parent=None):
+        super().__init__(parent)
+        self.service, self.batch_id = service, batch_id
+        self.setWindowTitle("Групповое назначение")
+        self.resize(760, 480)
+        root = QVBoxLayout(self)
+        self.header = QLabel(); self.header.setStyleSheet("font-size:14px;font-weight:600;")
+        self.header.setWordWrap(True)
+        root.addWidget(self.header)
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["ФИО", "Должность", "Отделение", "Таб. №"])
+        style_table(self.table)
+        root.addWidget(self.table, 1)
+        buttons = QHBoxLayout()
+        edit = QPushButton("Изменить группу"); edit.clicked.connect(self.edit_group)
+        delete = QPushButton("Удалить группу"); delete.clicked.connect(self.delete_group)
+        close = QPushButton("Закрыть"); close.clicked.connect(self.reject)
+        buttons.addWidget(edit); buttons.addWidget(delete); buttons.addStretch(); buttons.addWidget(close)
+        root.addLayout(buttons)
+        self.reload()
+
+    def reload(self) -> None:
+        events = self.service.list_batch_events(self.batch_id)
+        if not events:
+            self.reject(); return
+        first = events[0]
+        label = first["event_type"] + (f" / {first['subtype']}" if first["subtype"] else "")
+        period = f"{format_date(first['start_date'])} — {format_date(first['end_date'])}"
+        comment = first["notes"] or "—"
+        self.header.setText(f"{label}    •    {period}    •    Работников: {len(events)}\nПримечание: {comment}")
+        self.table.setRowCount(len(events))
+        for row, event in enumerate(events):
+            for column, value in enumerate((event["fio"], event["position"] or "—", event["section"] or "—", event["personnel_no"])):
+                self.table.setItem(row, column, QTableWidgetItem(str(value)))
+
+    def edit_group(self):
+        if BatchEventDialog(self.service, self, batch_id=self.batch_id).exec():
+            self.reload()
+
+    def delete_group(self):
+        count = len(self.service.list_batch_events(self.batch_id))
+        if QMessageBox.question(self, "Удалить группу", f"Удалить всю группу? Будет удалено записей: {count}.") != QMessageBox.Yes:
+            return
+        self.service.delete_batch_events(self.batch_id)
+        self.accept()
+
+
 class StaffUnitDialog(QDialog):
     def __init__(self, service, unit_id=None, parent=None, employee_id: int | None = None, vacancies_only: bool = False):
         super().__init__(parent); self.service=service; self.unit_id=unit_id; self.setWindowTitle("Штатная единица"); form=QFormLayout(self)
@@ -388,20 +602,20 @@ class StaffUnitDialog(QDialog):
 
 class MainWindow(QMainWindow):
     def __init__(self, db_path: Path):
-        super().__init__(); self.db = Database(db_path); self.service = PersonnelService(self.db); self.setWindowTitle(APP_NAME + " — версия 0.4"); self.resize(1280, 760); self.tabs = QTabWidget(); self.setCentralWidget(self.tabs); self._build_staff_tab(); self._build_events_tab(); self._build_summary_tab(); self._build_menu(); self.refresh_all()
+        super().__init__(); self.db = Database(db_path); self.service = PersonnelService(self.db); self.setWindowTitle(APP_NAME + " — версия 0.5"); self.resize(1280, 760); self.tabs = QTabWidget(); self.setCentralWidget(self.tabs); self._build_staff_tab(); self._build_events_tab(); self._build_summary_tab(); self._build_menu(); self.refresh_all()
     def _build_menu(self):
         menu = self.menuBar().addMenu("Сервис"); demo = QAction("Добавить демо-данные", self); demo.triggered.connect(self.seed_demo); menu.addAction(demo); dbinfo = QAction("Показать путь к данным", self); dbinfo.triggered.connect(lambda: QMessageBox.information(self, "Данные", f"База: {self.db.path}\nФотографии: {self.db.photos_dir}")); menu.addAction(dbinfo)
     def _build_employees_tab(self):
         tab = QWidget(); root = QVBoxLayout(tab); top = QHBoxLayout(); self.emp_search = QLineEdit(); self.emp_search.setPlaceholderText("Фамилия, табельный номер, подразделение, должность..."); self.emp_search.textChanged.connect(self.refresh_employees); add = QPushButton("Добавить работника"); add.clicked.connect(self.add_employee); edit = QPushButton("Открыть карточку"); edit.clicked.connect(self.edit_employee); top.addWidget(QLabel("Поиск:")); top.addWidget(self.emp_search, 1); top.addWidget(add); top.addWidget(edit); root.addLayout(top); self.emp_table = QTableWidget(0, 6); self.emp_table.setHorizontalHeaderLabels(["ID", "ФИО", "Таб. №", "Подразделение", "Должность", "График"]); self.emp_table.setColumnHidden(0, True); style_table(self.emp_table); self.emp_table.doubleClicked.connect(self.edit_employee); root.addWidget(self.emp_table); self.tabs.addTab(tab, "Личный состав")
     def _build_staff_tab(self):
         tab=QWidget(); root=QVBoxLayout(tab); top=QHBoxLayout(); self.staff_section=QComboBox(); self.staff_section.addItems(["Все",*SECTIONS]); self.staff_section.currentTextChanged.connect(self.refresh_staff); self.staff_search=QLineEdit(); self.staff_search.setPlaceholderText("ФИО, табельный номер, должность, телефон или № штатной единицы..."); self.staff_search.textChanged.connect(self.refresh_staff)
-        add_employee=QPushButton("Добавить работника"); add_employee.clicked.connect(self.add_employee); add=QPushButton("Добавить штатную единицу"); add.clicked.connect(self.add_staff); edit=QPushButton("Изменить"); edit.clicked.connect(self.edit_staff); delete=QPushButton("Удалить единицу"); delete.clicked.connect(self.delete_staff); archive=QPushButton("Архив работников"); archive.clicked.connect(self.show_archive); columns=QPushButton("Колонки ▼"); columns.clicked.connect(self.show_column_menu); reset=QPushButton("Сбросить фильтры"); reset.clicked.connect(self.reset_staff_filters)
-        top.addWidget(QLabel("Отделение:")); top.addWidget(self.staff_section); top.addWidget(QLabel("Поиск:")); top.addWidget(self.staff_search,1); [top.addWidget(button) for button in (add_employee,add,edit,delete,archive,columns,reset)]; root.addLayout(top)
+        add_employee=QPushButton("Добавить работника"); add_employee.clicked.connect(self.add_employee); add=QPushButton("Добавить штатную единицу"); add.clicked.connect(self.add_staff); edit=QPushButton("Изменить"); edit.clicked.connect(self.edit_staff); delete=QPushButton("Удалить единицу"); delete.clicked.connect(self.delete_staff); archive=QPushButton("Архив работников"); archive.clicked.connect(self.show_archive); batch=QPushButton("Назначить нескольким"); batch.clicked.connect(self.assign_batch_from_staff); columns=QPushButton("Колонки ▼"); columns.clicked.connect(self.show_column_menu); reset=QPushButton("Сбросить фильтры"); reset.clicked.connect(self.reset_staff_filters)
+        top.addWidget(QLabel("Отделение:")); top.addWidget(self.staff_section); top.addWidget(QLabel("Поиск:")); top.addWidget(self.staff_search,1); [top.addWidget(button) for button in (add_employee,add,edit,delete,archive,batch,columns,reset)]; root.addLayout(top)
         self.staff_metrics_label=QLabel(); self.staff_metrics_label.setStyleSheet("font-size:16px;font-weight:600;padding:8px;"); root.addWidget(self.staff_metrics_label)
         self.staff_headers=["ID","№","Отдел","Отделение","Группа","Должность","ФИО","Таб. №","Дата рождения","Возраст","Телефон","Вооружение","Email","Дата приёма","Последняя МК","Последняя ПП","График"]
         self.staff_filters: dict[str, set[str]] = {}; self.staff_table=SpreadsheetTable(0,len(self.staff_headers)); self.staff_table.setHorizontalHeaderLabels(self.staff_headers); self.staff_table.setColumnHidden(0,True); style_table(self.staff_table); self.staff_table.setSelectionMode(QTableWidget.ExtendedSelection); header=self.staff_table.horizontalHeader(); header.setSectionResizeMode(QHeaderView.Interactive); header.setSortIndicatorShown(True); header.sectionClicked.connect(self.sort_staff_by_column); header.setContextMenuPolicy(Qt.CustomContextMenu); header.customContextMenuRequested.connect(self.open_staff_filter_menu); header.sectionResized.connect(self.save_staff_layout); self.staff_table.doubleClicked.connect(self.open_staff_row); self._restore_staff_layout(); root.addWidget(self.staff_table); self.tabs.addTab(tab,"ШДС")
     def _build_events_tab(self):
-        tab = QWidget(); root = QVBoxLayout(tab); top = QHBoxLayout(); self.event_search = QLineEdit(); self.event_search.setPlaceholderText("Поиск по работнику или событию..."); self.event_search.textChanged.connect(self.refresh_events); add = QPushButton("Добавить"); add.clicked.connect(self.add_event); edit = QPushButton("Изменить"); edit.clicked.connect(self.edit_event); delete = QPushButton("Удалить"); delete.clicked.connect(self.delete_event); top.addWidget(QLabel("Поиск:")); top.addWidget(self.event_search, 1); top.addWidget(add); top.addWidget(edit); top.addWidget(delete); root.addLayout(top); self.event_table = QTableWidget(0, 8); self.event_table.setHorizontalHeaderLabels(["ID", "Работник", "Категория", "Подтип", "С", "По", "Место", "Основание"]); self.event_table.setColumnHidden(0, True); style_table(self.event_table); self.event_table.doubleClicked.connect(self.edit_event); root.addWidget(self.event_table); self.tabs.addTab(tab, "Занятость и отсутствия")
+        tab = QWidget(); root = QVBoxLayout(tab); top = QHBoxLayout(); self.event_search = QLineEdit(); self.event_search.setPlaceholderText("Поиск по работнику или событию..."); self.event_search.textChanged.connect(self.refresh_events); add = QPushButton("Добавить"); add.clicked.connect(self.add_event); batch = QPushButton("Назначить нескольким"); batch.clicked.connect(self.assign_batch); edit = QPushButton("Изменить"); edit.clicked.connect(self.edit_event); group = QPushButton("Открыть группу"); group.clicked.connect(self.open_selected_group); delete = QPushButton("Удалить"); delete.clicked.connect(self.delete_event); top.addWidget(QLabel("Поиск:")); top.addWidget(self.event_search, 1); top.addWidget(add); top.addWidget(batch); top.addWidget(edit); top.addWidget(group); top.addWidget(delete); root.addLayout(top); self.event_table = QTableWidget(0, 8); self.event_table.setHorizontalHeaderLabels(["ID", "Работник", "Категория", "Подтип", "С", "По", "Место", "Основание"]); self.event_table.setColumnHidden(0, True); style_table(self.event_table); self.event_table.doubleClicked.connect(self.edit_event); root.addWidget(self.event_table); self.tabs.addTab(tab, "Занятость и отсутствия")
     def _build_summary_tab(self):
         tab=QWidget(); root=QVBoxLayout(tab); views=QTabWidget(); root.addWidget(views)
         summary_tab=QWidget(); summary_root=QVBoxLayout(summary_tab); top=QHBoxLayout(); self.summary_date=new_date_edit(); self.summary_date.setDate(QDate.currentDate()); self.summary_date.dateChanged.connect(self.refresh_summary); self.summary_section=QComboBox(); self.summary_section.addItems(["Все",*SECTIONS[:-1]]); self.summary_section.currentTextChanged.connect(self.refresh_summary); refresh=QPushButton("Пересчитать"); refresh.clicked.connect(self.refresh_summary); copy=QPushButton("Копировать расход"); copy.clicked.connect(self.copy_summary); top.addWidget(QLabel("Дата расхода:")); top.addWidget(self.summary_date); top.addWidget(QLabel("Подробный расход:")); top.addWidget(self.summary_section); top.addWidget(refresh); top.addStretch(); top.addWidget(copy); summary_root.addLayout(top)
@@ -535,7 +749,12 @@ class MainWindow(QMainWindow):
     def refresh_events(self):
         rows = self.service.list_events(self.event_search.text()); self.event_table.setRowCount(len(rows))
         for i, r in enumerate(rows):
-            for j, v in enumerate([r["id"], r["fio"], r["event_type"], r["subtype"], format_date(r["start_date"]), format_date(r["end_date"]), r["location"], r["basis"]]): self.event_table.setItem(i, j, QTableWidgetItem(str(v or "")))
+            batch_id = r["batch_id"] if "batch_id" in r.keys() else None
+            for j, v in enumerate([r["id"], r["fio"], ("👥 " if batch_id else "") + r["event_type"], r["subtype"], format_date(r["start_date"]), format_date(r["end_date"]), r["location"], r["basis"]]):
+                item = QTableWidgetItem(str(v or ""))
+                if j == 0:
+                    item.setData(Qt.UserRole, batch_id or "")
+                self.event_table.setItem(i, j, item)
     def refresh_summary(self):
         target=self.summary_date.date().toString("yyyy-MM-dd"); all_metrics=self.service.staff_metrics(target); values=[("По штату","staff"),("По списку","listed"),("Вакантно","vacant"),("Отсутствуют","absent"),("На лицо","present")]
         for row,(label,key) in enumerate(values):
@@ -608,12 +827,56 @@ class MainWindow(QMainWindow):
         search.textChanged.connect(refresh); table.doubleClicked.connect(lambda: EmployeeDialog(self.service,int(table.item(table.currentRow(),0).text()),dialog).exec()); layout.addWidget(search); layout.addWidget(table); close=QPushButton("Закрыть"); close.clicked.connect(dialog.accept); layout.addWidget(close); refresh(); dialog.exec()
     def add_event(self):
         if EventDialog(self.service, self).exec(): self.refresh_all()
+    def _selected_event_row(self) -> tuple[int, str] | None:
+        row = self.event_table.currentRow()
+        if row < 0: return None
+        item = self.event_table.item(row, 0)
+        return int(item.text()), (item.data(Qt.UserRole) or "")
+    def assign_batch(self, preselected: list[int] | None = None):
+        if BatchEventDialog(self.service, self, preselected=preselected).exec(): self.refresh_all()
+    def assign_batch_from_staff(self):
+        ids: list[int] = []
+        selection = self.staff_table.selectionModel()
+        for index in selection.selectedRows() if selection else []:
+            unit = self.service.staff_unit(int(self.staff_table.item(index.row(), 0).text()))
+            # В группу попадают только действующие работники — вакансии пропускаем.
+            if unit and unit["employee_id"]:
+                person = self.service.get_employee(int(unit["employee_id"]))
+                if person and person["employment_status"] == "Работает":
+                    ids.append(int(unit["employee_id"]))
+        if not ids:
+            QMessageBox.information(self, "Назначить нескольким", "Выделите в ШДС строки с работниками (вакансии не участвуют).")
+            return
+        self.assign_batch(preselected=ids)
+    def open_group(self, batch_id: str):
+        if BatchGroupDialog(self.service, batch_id, self).exec(): self.refresh_all()
+    def open_selected_group(self):
+        selected = self._selected_event_row()
+        if not selected: return
+        _event_id, batch_id = selected
+        if not batch_id:
+            QMessageBox.information(self, "Открыть группу", "Это одиночная запись, группы у неё нет."); return
+        self.open_group(batch_id)
     def edit_event(self):
-        row = self.event_table.currentRow()
-        if row >= 0 and EventDialog(self.service, self, event_id=int(self.event_table.item(row, 0).text())).exec(): self.refresh_all()
+        selected = self._selected_event_row()
+        if not selected: return
+        event_id, batch_id = selected
+        # Запись из группы нельзя редактировать отдельно — открываем группу.
+        if batch_id:
+            self.open_group(batch_id); return
+        if EventDialog(self.service, self, event_id=event_id).exec(): self.refresh_all()
     def delete_event(self):
-        row = self.event_table.currentRow()
-        if row >= 0 and QMessageBox.question(self, "Удалить событие", "Удалить выбранную запись?") == QMessageBox.Yes: self.service.delete_event(int(self.event_table.item(row, 0).text())); self.refresh_all()
+        selected = self._selected_event_row()
+        if not selected: return
+        event_id, batch_id = selected
+        if batch_id:
+            # Одиночное удаление части группы запрещено: предлагаем удалить всю группу.
+            count = len(self.service.list_batch_events(batch_id))
+            choice = QMessageBox.question(self, "Групповое назначение", f"Запись входит в групповое назначение. Удалить всю группу? Будет удалено записей: {count}.")
+            if choice == QMessageBox.Yes:
+                self.service.delete_batch_events(batch_id); self.refresh_all()
+            return
+        if QMessageBox.question(self, "Удалить событие", "Удалить выбранную запись?") == QMessageBox.Yes: self.service.delete_event(event_id); self.refresh_all()
     def copy_summary(self): QApplication.clipboard().setText(self.service.render_daily_text(self.summary_date.date().toString("yyyy-MM-dd"))); QMessageBox.information(self, "Готово", "Расход скопирован в буфер обмена.")
     def seed_demo(self):
         try: self.service.seed_demo_data(); self.refresh_all(); QMessageBox.information(self, "Демо", "Добавлены 4 вымышленных работника и несколько событий.")
