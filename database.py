@@ -21,13 +21,14 @@ CREATE TABLE IF NOT EXISTS medical_checks (id INTEGER PRIMARY KEY AUTOINCREMENT,
 CREATE TABLE IF NOT EXISTS periodic_checks (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, check_date TEXT NOT NULL, result TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS trainings (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, specialty TEXT NOT NULL, training_date TEXT NOT NULL, order_ref TEXT NOT NULL DEFAULT '', certificate TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS weapons (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, weapon_type TEXT NOT NULL, model TEXT NOT NULL DEFAULT '', serial_number TEXT NOT NULL, assignment_date TEXT, removal_date TEXT, basis TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, event_type TEXT NOT NULL, subtype TEXT NOT NULL DEFAULT '', start_date TEXT NOT NULL, end_date TEXT NOT NULL, location TEXT NOT NULL DEFAULT '', basis TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK(end_date>=start_date));
+CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, event_type TEXT NOT NULL, subtype TEXT NOT NULL DEFAULT '', start_date TEXT NOT NULL, end_date TEXT NOT NULL, location TEXT NOT NULL DEFAULT '', basis TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', batch_id TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK(end_date>=start_date));
 CREATE INDEX IF NOT EXISTS idx_events_employee_dates ON events(employee_id,start_date,end_date);
 CREATE INDEX IF NOT EXISTS idx_events_dates ON events(start_date,end_date);
+CREATE INDEX IF NOT EXISTS idx_events_batch ON events(batch_id);
 """
 
 class Database:
- CURRENT_VERSION=4
+ CURRENT_VERSION=5
  def __init__(self,path:str|Path): self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True); self.initialize()
  @property
  def photos_dir(self): p=self.path.parent/'photos'; p.mkdir(parents=True,exist_ok=True); return p
@@ -47,6 +48,10 @@ class Database:
    if 'group_name' not in cols: c.execute('ALTER TABLE employees ADD COLUMN group_name TEXT')
    unit_cols={r['name'] for r in c.execute('PRAGMA table_info(staff_units)')}
    if 'group_name' not in unit_cols: c.execute('ALTER TABLE staff_units ADD COLUMN group_name TEXT')
+   # v0.5 stage 1: batch assignments.  Existing rows keep batch_id=NULL.
+   event_cols={r['name'] for r in c.execute('PRAGMA table_info(events)')}
+   if 'batch_id' not in event_cols: c.execute('ALTER TABLE events ADD COLUMN batch_id TEXT')
+   c.execute('CREATE INDEX IF NOT EXISTS idx_events_batch ON events(batch_id)')
    # Safe legacy migration: older installations did not have staff units.
    # These generated units preserve the visible composition of an old database;
    # new employees are never assigned a unit automatically.
