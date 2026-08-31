@@ -1,13 +1,67 @@
 .venv/
+venv/
+env/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # macOS and Windows system files
 .DS_Store
 Thumbs.db
 Desktop.ini
 
-# Editor settings
+# Logs, temporary files and local runtime output
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Local SQLite databases and SQLite sidecar files.
+# Keep schema/migration SQL or other source fixtures explicitly named if needed.
+*.db
+*.sqlite
+*.sqlite3
+*.db-*
+*.sqlite-*
+data/logs/
+
+# Worker photos and generated media (personal data)
+data/photos/
+photos/
+
+# Backups and exported local copies
+backup/
+backups/
+*.bak
+*.backup
+*.old
+
+# Local configuration and environment files (may contain personal data or paths)
+.env
+.env.*
+*.local
+*.local.*
+settings.local.*
+
+# Editor settings and IDE caches
 .idea/
 .vscode/
+*.code-workspace
+
+# Build/package artifacts
+build/
+dist/
+*.egg-info/
