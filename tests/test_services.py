@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from database import Database
-from services import PersonnelService, calculate_age
+from services import PersonnelService, calculate_age, format_age
 
 
 class PersonnelServiceTests(unittest.TestCase):
@@ -309,6 +309,87 @@ class PersonnelServiceTests(unittest.TestCase):
         self.assertIn("—", placeholder)  # пустые значения дают единый маркер
         filtered = self.svc.list_staff_units(filters={"Телефон": {"—"}})
         self.assertEqual([row["unit_number"] for row in filtered], ["41", "42"])
+
+    def test_calculate_age_for_common_and_edge_dates(self):
+        self.assertEqual(calculate_age("1990-01-01", date(2026, 9, 2)), 36)
+        self.assertEqual(calculate_age("2000-01-01", date(2026, 9, 2)), 26)  # день рождения уже был
+        self.assertEqual(calculate_age("2000-12-31", date(2026, 9, 2)), 25)  # день рождения ещё не был
+        self.assertEqual(calculate_age("2000-09-02", date(2026, 9, 2)), 26)
+        self.assertIsNone(calculate_age(None))
+        self.assertIsNone(calculate_age(""))
+        self.assertIsNone(calculate_age("   "))
+        self.assertIsNone(calculate_age("not-a-date"))
+        self.assertIsNone(calculate_age("2026-13-40"))
+        self.assertIsNone(calculate_age("31.12.2000"))
+        self.assertEqual(format_age("1990-01-01", date(2026, 9, 2)), "36 лет")
+        self.assertEqual(format_age(None), "Не указан")
+        self.assertEqual(format_age("bad"), "Не указан")
+
+    def test_schedule_52_is_saved_and_reloaded(self):
+        employee_id = self.svc.save_employee({
+            "fio": "Сменный Пять Два", "personnel_no": "52-1", "department": "3 отдел",
+            "position": "инспектор", "birth_date": "1991-04-04", "employment_date": "2021-01-01",
+            "factual_address": "", "registration_address": "", "phone": "", "email": "",
+            "schedule_type": "5/2", "schedule_anchor_date": None, "employment_status": "Работает",
+        })
+        loaded = self.svc.get_employee(employee_id)
+        self.assertEqual(loaded["schedule_type"], "5/2")
+        reopened = PersonnelService(Database(self.db.path)).get_employee(employee_id)
+        self.assertEqual(reopened["schedule_type"], "5/2")
+
+    def test_unassigned_active_employees_only_lists_working_people_without_unit(self):
+        assigned = self.svc.save_employee({
+            "fio": "Назначенный", "personnel_no": "u-2", "department": "3 отдел", "section": "1 отделение",
+            "position": "инспектор", "birth_date": None, "employment_date": None, "factual_address": "",
+            "registration_address": "", "phone": "", "email": "", "schedule_type": "Не задан",
+            "schedule_anchor_date": None, "employment_status": "Работает",
+        })
+        archived = self.svc.save_employee({
+            "fio": "Архивный", "personnel_no": "u-3", "department": "3 отдел", "position": "инспектор",
+            "birth_date": None, "employment_date": None, "factual_address": "", "registration_address": "",
+            "phone": "", "email": "", "schedule_type": "Не задан", "schedule_anchor_date": None,
+            "employment_status": "Архив", "archive_date": "2026-01-01",
+        })
+        self.svc.save_staff_unit({"unit_number": "U-1", "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": assigned})
+        names = [row["fio"] for row in self.svc.unassigned_active_employees()]
+        self.assertIn("Иванов Иван Иванович", names)
+        self.assertNotIn("Назначенный", names)
+        self.assertNotIn("Архивный", names)
+        self.assertEqual(self.svc.get_employee(archived)["employment_status"], "Архив")
+
+    def test_assign_vacant_unit_and_reject_occupied_or_double_assignment(self):
+        other = self.svc.save_employee({
+            "fio": "Второй", "personnel_no": "asg-2", "department": "3 отдел", "section": "1 отделение",
+            "position": "инспектор", "birth_date": None, "employment_date": None, "factual_address": "",
+            "registration_address": "", "phone": "", "email": "", "schedule_type": "Не задан",
+            "schedule_anchor_date": None, "employment_status": "Работает",
+        })
+        vacant = self.svc.save_staff_unit({"unit_number": "A-1", "department": "3 отдел", "section": "1 отделение", "group_name": "1 группа", "position": "инспектор", "employee_id": None})
+        occupied = self.svc.save_staff_unit({"unit_number": "A-2", "department": "3 отдел", "section": "2 отделение", "position": "инспектор", "employee_id": other})
+        self.svc.assign_employee_to_unit(self.emp, vacant)
+        self.assertEqual(self.svc.staff_unit(vacant)["employee_id"], self.emp)
+        self.assertEqual([row["fio"] for row in self.svc.unassigned_active_employees()], [])
+        with self.assertRaisesRegex(ValueError, "уже занята"):
+            self.svc.assign_employee_to_unit(self.emp, occupied)
+        extra = self.svc.save_staff_unit({"unit_number": "A-3", "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": None})
+        with self.assertRaisesRegex(ValueError, "уже занимает другую штатную единицу"):
+            self.svc.assign_employee_to_unit(self.emp, extra)
+        person = self.svc.get_employee(self.emp)
+        self.assertIn("№ A-1", self.svc.assignment_status_text(person))
+        self.assertIn("инспектор", self.svc.assignment_status_text(person))
+
+    def test_unique_field_values_are_case_insensitive_and_deduplicated(self):
+        self.svc.save_employee({
+            "fio": "Подсказки", "personnel_no": "hint-1", "department": "3 Отдел", "section": "1 отделение",
+            "group_name": "2 группа", "position": "Инспектор", "birth_date": None, "employment_date": None,
+            "factual_address": "", "registration_address": "", "phone": "", "email": "",
+            "schedule_type": "Не задан", "schedule_anchor_date": None, "employment_status": "Работает",
+        })
+        self.svc.save_staff_unit({"unit_number": "H-1", "department": "3 отдел", "section": "1 отделение", "group_name": "2 группа", "position": "инспектор", "employee_id": None})
+        positions = [value.casefold() for value in self.svc.unique_field_values("position")]
+        self.assertEqual(positions.count("инспектор"), 1)
+        self.assertIn("3 отдел", [value.casefold() for value in self.svc.unique_field_values("department")])
+        self.assertIn("2 группа", self.svc.unique_field_values("group_name"))
 
     def test_metrics_unchanged_by_audit_fixes(self):
         self.svc.save_staff_unit({"unit_number": "51", "department": "3 отдел", "section": "1 отделение", "position": "инспектор", "employee_id": self.emp})
