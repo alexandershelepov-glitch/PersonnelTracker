@@ -25,11 +25,19 @@ def calculate_age(birth_date: str | None, on_date: date | None = None) -> int | 
     if not birth_date:
         return None
     try:
-        born = date.fromisoformat(birth_date)
-    except ValueError:
+        born = date.fromisoformat(str(birth_date).strip())
+    except (TypeError, ValueError):
         return None
     today = on_date or date.today()
+    if born > today:
+        return None
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+
+def format_age(birth_date: str | None, on_date: date | None = None, empty: str = "Не указан") -> str:
+    """UI-facing age label. Invalid or empty dates never raise."""
+    age = calculate_age(birth_date, on_date)
+    return f"{age} лет" if age is not None else empty
 
 
 def natural_sort_key(value: str | None) -> tuple:
@@ -97,12 +105,15 @@ class PersonnelService:
             "fio", "personnel_no", "department", "position", "birth_date",
             "factual_address", "registration_address", "phone", "email",
             "employment_date", "schedule_type", "schedule_anchor_date", "employment_status", "section",
+            "group_name",
         ]
-        nullable = {"birth_date", "employment_date", "schedule_anchor_date", "archive_date"}
+        nullable = {"birth_date", "employment_date", "schedule_anchor_date", "archive_date", "group_name"}
         values = [data.get(field) or None if field in nullable else data.get(field, "") for field in fields]
         values[fields.index("schedule_type")] = data.get("schedule_type") or "Не задан"
         values[fields.index("employment_status")] = data.get("employment_status") or "Работает"
         values[fields.index("section")] = data.get("section") or "Не указано"
+        group_name = (data.get("group_name") or "").strip() or None
+        values[fields.index("group_name")] = group_name
         with self.db.connect() as conn:
             if employee_id:
                 unit = conn.execute("SELECT * FROM staff_units WHERE employee_id=?", (employee_id,)).fetchone()
@@ -111,6 +122,7 @@ class PersonnelService:
                 if unit:
                     for field in ("department", "section", "position"):
                         values[fields.index(field)] = unit[field]
+                    values[fields.index("group_name")] = unit["group_name"]
                 status = values[fields.index("employment_status")]
                 assignments = ", ".join(f"{field}=?" for field in fields)
                 conn.execute(f"UPDATE employees SET {assignments}, updated_at=CURRENT_TIMESTAMP WHERE id=?", (*values, employee_id))
@@ -251,8 +263,15 @@ class PersonnelService:
         if data["section"] not in {"1 отделение", "2 отделение"}:
             group_name = None
         with self.db.connect() as conn:
+            if unit_id:
+                current = conn.execute("SELECT employee_id FROM staff_units WHERE id=?", (unit_id,)).fetchone()
+                if not current:
+                    raise ValueError("Штатная единица не найдена.")
+                occupant = current["employee_id"]
+                if occupant and employee_id and int(occupant) != employee_id:
+                    raise ValueError("Штатная единица уже занята.")
             if employee_id:
-                occupied=conn.execute("SELECT id FROM staff_units WHERE employee_id=? AND id<>",(employee_id,unit_id or -1)).fetchone()
+                occupied=conn.execute("SELECT id FROM staff_units WHERE employee_id=? AND id<>?",(employee_id,unit_id or -1)).fetchone()
                 if occupied: raise ValueError("Этот работник уже занимает другую штатную единицу.")
             if unit_id:
                 conn.execute("UPDATE staff_units SET unit_number=?,department=?,section=?,group_name=?,position=?,employee_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(data["unit_number"].strip(),data.get("department","").strip(),data["section"],group_name,data["position"].strip(),employee_id,unit_id)); result=unit_id
@@ -295,6 +314,62 @@ class PersonnelService:
     def unassigned_active_employees(self):
         with self.db.connect() as conn:
             return conn.execute("SELECT p.* FROM employees p LEFT JOIN staff_units u ON u.employee_id=p.id WHERE p.employment_status='Работает' AND u.id IS NULL ORDER BY p.fio").fetchall()
+
+    def vacant_staff_units(self):
+        return [unit for unit in self.list_staff_units() if not unit["employee_id"]]
+
+    def unique_field_values(self, field: str) -> list[str]:
+        """Distinct already-used values for personnel-card autocompletion."""
+        columns = {"position", "department", "section", "group_name"}
+        if field not in columns:
+            raise ValueError("Недопустимое поле подсказки")
+        seen: dict[str, str] = {}
+        with self.db.connect() as conn:
+            for table in ("employees", "staff_units"):
+                for row in conn.execute(f"SELECT DISTINCT {field} AS value FROM {table}"):
+                    raw = (row["value"] or "").strip()
+                    if not raw or raw == "—":
+                        continue
+                    key = raw.casefold()
+                    if key not in seen:
+                        seen[key] = raw
+        return sorted(seen.values(), key=natural_sort_key)
+
+    def assign_employee_to_unit(self, employee_id: int, unit_id: int) -> int:
+        person = self.get_employee(employee_id)
+        if not person:
+            raise ValueError("Работник не найден.")
+        if person["employment_status"] != "Работает":
+            raise ValueError("Назначить на штатную единицу можно только действующего работника.")
+        unit = self.staff_unit(unit_id)
+        if not unit:
+            raise ValueError("Штатная единица не найдена.")
+        if unit["employee_id"] and int(unit["employee_id"]) != int(employee_id):
+            raise ValueError("Штатная единица уже занята.")
+        return self.save_staff_unit({
+            "unit_number": unit["unit_number"],
+            "department": unit["department"] or "",
+            "section": unit["section"],
+            "group_name": unit["group_name"] or "",
+            "position": unit["position"],
+            "employee_id": employee_id,
+        }, unit_id)
+
+    def assignment_status_text(self, employee) -> str:
+        if not employee:
+            return "Не назначен на штатную единицу"
+        status = employee["employment_status"] or "Работает"
+        if status != "Работает":
+            when = employee["archive_date"]
+            return f"{status} с {when}" if when else status
+        if not employee["staff_unit_id"]:
+            return "Не назначен на штатную единицу"
+        unit = self.staff_unit(int(employee["staff_unit_id"]))
+        if not unit:
+            return "Не назначен на штатную единицу"
+        details = [part for part in (unit["position"], unit["section"]) if part]
+        suffix = f" ({', '.join(details)})" if details else ""
+        return f"Назначен на штатную единицу № {unit['unit_number']}{suffix}"
 
     def staff_people(self, target_date: str, kind: str, section: str = "Все"):
         metrics=self.staff_metrics(target_date,section)
