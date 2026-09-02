@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS weapons (id INTEGER PRIMARY KEY AUTOINCREMENT, employ
 CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, event_type TEXT NOT NULL, subtype TEXT NOT NULL DEFAULT '', start_date TEXT NOT NULL, end_date TEXT NOT NULL, location TEXT NOT NULL DEFAULT '', basis TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', batch_id TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK(end_date>=start_date));
 CREATE INDEX IF NOT EXISTS idx_events_employee_dates ON events(employee_id,start_date,end_date);
 CREATE INDEX IF NOT EXISTS idx_events_dates ON events(start_date,end_date);
-CREATE INDEX IF NOT EXISTS idx_events_batch ON events(batch_id);
 """
 
 class Database:
@@ -48,7 +47,8 @@ class Database:
    if 'group_name' not in cols: c.execute('ALTER TABLE employees ADD COLUMN group_name TEXT')
    unit_cols={r['name'] for r in c.execute('PRAGMA table_info(staff_units)')}
    if 'group_name' not in unit_cols: c.execute('ALTER TABLE staff_units ADD COLUMN group_name TEXT')
-   # v0.5 stage 1: batch assignments.  Existing rows keep batch_id=NULL.
+   # v0.5 stage 1: batch assignments. Existing rows keep batch_id=NULL.
+   # The index must be created only after the legacy events table is migrated.
    event_cols={r['name'] for r in c.execute('PRAGMA table_info(events)')}
    if 'batch_id' not in event_cols: c.execute('ALTER TABLE events ADD COLUMN batch_id TEXT')
    c.execute('CREATE INDEX IF NOT EXISTS idx_events_batch ON events(batch_id)')
@@ -58,7 +58,7 @@ class Database:
    if legacy_without_staff_units:
     for p in c.execute("SELECT id,personnel_no,department,section,position FROM employees WHERE employment_status='Работает'").fetchall():
      c.execute("INSERT OR IGNORE INTO staff_units(unit_number,department,section,position,employee_id) VALUES(?,?,?,?,?)",(f"М-{p['id']}",p['department'],p['section'] or 'Не указано',p['position'] or 'Не указана',p['id']))
-   # An archived employee must never continue to occupy an active unit.  Their
+   # An archived employee must never continue to occupy an active unit. Their
    # card and all related history remain untouched.
    c.execute("""UPDATE staff_units SET employee_id=NULL, updated_at=CURRENT_TIMESTAMP
                 WHERE employee_id IN (SELECT id FROM employees WHERE employment_status<>'Работает')""")
