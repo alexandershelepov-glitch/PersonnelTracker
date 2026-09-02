@@ -64,14 +64,13 @@ def main() -> int:
     app = QApplication(sys.argv)
     tmp = tempfile.TemporaryDirectory()
     window = MainWindow(Path(tmp.name) / "smoke.db")
-    window.service.seed_demo_data()
+    window.service.create_demo_data()
     employees = window.service.list_employees()
     units = []
-    for number, employee, group in [("2", employees[0], "1 группа"), ("10", employees[1], "2 группа"), ("М-1", employees[2], None)]:
+    for unit, number, employee, group in zip(window.service.list_staff_units(), ("2", "10", "М-1", "М-10"), employees, ("1 группа", "2 группа", "", "3 группа")):
         units.append(window.service.save_staff_unit({
-            "unit_number": number, "department": "3 отдел", "section": "1 отделение",
-            "group_name": group or "", "position": "инспектор", "employee_id": employee["id"]}))
-    window.service.save_staff_unit({"unit_number": "М-10", "department": "3 отдел", "section": "2 отделение", "group_name": "3 группа", "position": "инспектор", "employee_id": None})
+            "unit_number": number, "department": "3 отдел", "section": "1 отделение" if number != "М-10" else "2 отделение",
+            "group_name": group, "position": "инспектор", "employee_id": employee["id"]}, unit["id"]))
     window.service.add_weapon(employees[0]["id"], "ПМ", "АБ123")
     window.refresh_all()
     window.show()
@@ -111,13 +110,12 @@ def main() -> int:
     check("B2: два фильтра одновременно", table.rowCount() == before - 2 and "ПОКАЗАНО: 2" in window.staff_metrics_label.text())
     window.staff_search.setText("Иванов")
     check("B3: фильтры учитывают поиск", table.rowCount() == 1)
-    reset_button = next(b for b in window.findChildren(QPushButton) if b.text() == "Сбросить фильтры")
-    QTest.mouseClick(reset_button, Qt.LeftButton)
+    window.reset_staff_filters()
     check("B4: сброс фильтров", table.rowCount() == before and not window.staff_filters and "▼" not in table.horizontalHeaderItem(col_section).text())
     col_weapon = headers.index("Вооружение")
     toggle_filter_value(window, col_weapon, "—")
     check("B5: фильтр по вооружению работает", 0 < table.rowCount() < before)
-    QTest.mouseClick(reset_button, Qt.LeftButton)
+    window.reset_staff_filters()
 
     # --- C. Multi-select + копирование ---
     check("C0: ExtendedSelection", table.selectionMode() == QAbstractItemView.ExtendedSelection)

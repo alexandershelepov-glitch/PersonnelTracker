@@ -86,6 +86,7 @@ class PersonnelServiceTests(unittest.TestCase):
         self.assertIsNone(employee["birth_date"])
         self.assertIsNone(employee["employment_date"])
 
+
     def test_weapon_crud_uses_name_and_number(self):
         weapon_id = self.svc.add_weapon(self.emp, "Пистолет Макарова", "ПМ-12345")
         weapon = self.svc.get_history_record("weapons", weapon_id, self.emp)
@@ -397,6 +398,27 @@ class PersonnelServiceTests(unittest.TestCase):
         metrics = self.svc.staff_metrics("2026-08-24")
         self.assertEqual(metrics["total"], {"staff": 2, "listed": 1, "vacant": 1, "absent": 0, "present": 1})
         self.assertTrue(metrics["valid"])
+
+
+class DemoDataTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = Database(Path(self.tmp.name) / "demo.db")
+        self.svc = PersonnelService(self.db)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_demo_data_is_complete_visible_and_not_duplicated(self):
+        result = self.svc.create_demo_data()
+        self.assertEqual(result, {"employees": 4, "staff_units": 4, "events": 2})
+        self.assertEqual(len(self.svc.list_employees()), 4)
+        self.assertEqual(len(self.svc.list_staff_units()), 4)
+        self.assertEqual(self.svc.staff_metrics("2026-08-25")["total"]["listed"], 4)
+        with self.assertRaisesRegex(ValueError, "пустую базу"):
+            self.svc.create_demo_data()
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
 
 
 if __name__ == "__main__":

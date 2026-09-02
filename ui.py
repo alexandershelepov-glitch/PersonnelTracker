@@ -6,19 +6,20 @@ from datetime import date
 from pathlib import Path
 from collections import defaultdict
 
-from PySide6.QtCore import QDate, Qt, Signal
+from PySide6.QtCore import QDate, QSettings, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QPainter, QPixmap, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QCompleter, QDateEdit, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QMainWindow, QMessageBox, QPushButton, QSpinBox, QTabWidget,
     QTableWidget, QTableWidgetItem, QTextEdit, QTreeWidget, QTreeWidgetItem,
-    QVBoxLayout, QWidget, QMenu,
+    QVBoxLayout, QWidget, QMenu, QScrollArea, QToolButton,
 )
 
 from config import APP_NAME, EVENT_TYPES, SCHEDULE_TYPES, SECTIONS
 from database import Database
 from services import BatchConflictError, PersonnelService, calculate_age, format_age, natural_sort_key
+from theme import ThemeManager
 
 
 NULL_DATE = QDate(1900, 1, 1)
@@ -77,6 +78,19 @@ def style_table(table: QTableWidget) -> None:
     table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
 
+def fit_to_available_screen(widget: QWidget, preferred_width: int, preferred_height: int,
+                            minimum_width: int, minimum_height: int) -> None:
+    """Choose a sensible initial size without exceeding the usable desktop area."""
+    screen = widget.screen() or QApplication.primaryScreen()
+    if screen is None:
+        widget.resize(preferred_width, preferred_height)
+        return
+    area = screen.availableGeometry()
+    width = min(preferred_width, max(minimum_width, int(area.width() * 0.88)))
+    height = min(preferred_height, max(minimum_height, int(area.height() * 0.88)))
+    widget.resize(min(width, area.width()), min(height, area.height()))
+
+
 class SpreadsheetTable(QTableWidget):
     """Read-only table with spreadsheet-compatible copying of visible cells."""
     def keyPressEvent(self, event):
@@ -106,8 +120,11 @@ class EmployeeDialog(QDialog):
         self.created_in_dialog = False
         self.current_daily_status: str | None = None
         self.setWindowTitle("Карточка работника")
-        self.resize(1040, 720)
-        self.tabs = QTabWidget(); self.main_tab = QWidget(); self.tabs.addTab(self.main_tab, "Основное")
+        self.setMinimumSize(640, 480)
+        fit_to_available_screen(self, 1040, 720, 640, 480)
+        self.tabs = QTabWidget(); self.main_tab = QWidget()
+        self.main_scroll = QScrollArea(); self.main_scroll.setWidgetResizable(True); self.main_scroll.setWidget(self.main_tab)
+        self.tabs.addTab(self.main_scroll, "Основное")
         self._build_main(); self._build_record_tabs()
         self._clean_state = self.form_state()
         buttons = russian_dialog_buttons(); buttons.accepted.connect(self.save); buttons.button(QDialogButtonBox.Cancel).hide()
@@ -725,15 +742,59 @@ class UnassignedEmployeesDialog(QDialog):
 
 class MainWindow(QMainWindow):
     def __init__(self, db_path: Path):
-        super().__init__(); self.db = Database(db_path); self.service = PersonnelService(self.db); self.setWindowTitle(APP_NAME + " — версия 0.5"); self.resize(1280, 760); self.tabs = QTabWidget(); self.setCentralWidget(self.tabs); self._build_staff_tab(); self._build_events_tab(); self._build_summary_tab(); self._build_menu(); self.refresh_all()
+        super().__init__()
+        self.db = Database(db_path)
+        self.service = PersonnelService(self.db)
+        self.settings = QSettings("PersonnelTracker", "PersonnelTracker")
+        self.theme_manager = ThemeManager(self.settings)
+        self.setWindowTitle(APP_NAME + " — версия 0.5.1")
+        self.setMinimumSize(760, 520)
+        self.tabs = QTabWidget()
+        self.setCentralWidget(self.tabs)
+        self._build_staff_tab(); self._build_events_tab(); self._build_summary_tab(); self._build_menu()
+        self._restore_window_state()
+        self.refresh_all()
+
+    def _restore_window_state(self) -> None:
+        state = self.settings.value("window/state")
+        geometry = self.settings.value("window/geometry")
+        screen = self.screen() or QApplication.primaryScreen()
+        if geometry and self.restoreGeometry(geometry):
+            if state:
+                self.restoreState(state)
+            if screen is not None and self.frameGeometry().intersects(screen.availableGeometry()):
+                return
+        fit_to_available_screen(self, 1280, 760, 760, 520)
+        if screen is not None:
+            area = screen.availableGeometry()
+            self.move(area.center() - self.rect().center())
+
+    def closeEvent(self, event) -> None:
+        self.settings.setValue("window/geometry", self.saveGeometry())
+        self.settings.setValue("window/state", self.saveState())
+        super().closeEvent(event)
+
     def _build_menu(self):
-        menu = self.menuBar().addMenu("Сервис"); demo = QAction("Добавить демо-данные", self); demo.triggered.connect(self.seed_demo); menu.addAction(demo); dbinfo = QAction("Показать путь к данным", self); dbinfo.triggered.connect(lambda: QMessageBox.information(self, "Данные", f"База: {self.db.path}\nФотографии: {self.db.photos_dir}")); menu.addAction(dbinfo)
+        menu = self.menuBar().addMenu("Сервис")
+        demo = QAction("Добавить демо-данные", self); demo.triggered.connect(self.seed_demo); menu.addAction(demo)
+        theme = QAction("Переключить светлую/тёмную тему", self); theme.triggered.connect(self.toggle_theme); menu.addAction(theme)
+        dbinfo = QAction("Показать путь к данным", self); dbinfo.triggered.connect(lambda: QMessageBox.information(self, "Данные", f"База: {self.db.path}\nФотографии: {self.db.photos_dir}")); menu.addAction(dbinfo)
+
+    def toggle_theme(self) -> None:
+        selected = self.theme_manager.toggle(QApplication.instance())
+        QMessageBox.information(self, "Оформление", "Включена тёмная тема." if selected == ThemeManager.DARK else "Включена светлая тема.")
     def _build_employees_tab(self):
         tab = QWidget(); root = QVBoxLayout(tab); top = QHBoxLayout(); self.emp_search = QLineEdit(); self.emp_search.setPlaceholderText("Фамилия, табельный номер, подразделение, должность..."); self.emp_search.textChanged.connect(self.refresh_employees); add = QPushButton("Добавить работника"); add.clicked.connect(self.add_employee); edit = QPushButton("Открыть карточку"); edit.clicked.connect(self.edit_employee); top.addWidget(QLabel("Поиск:")); top.addWidget(self.emp_search, 1); top.addWidget(add); top.addWidget(edit); root.addLayout(top); self.emp_table = QTableWidget(0, 6); self.emp_table.setHorizontalHeaderLabels(["ID", "ФИО", "Таб. №", "Подразделение", "Должность", "График"]); self.emp_table.setColumnHidden(0, True); style_table(self.emp_table); self.emp_table.doubleClicked.connect(self.edit_employee); root.addWidget(self.emp_table); self.tabs.addTab(tab, "Личный состав")
     def _build_staff_tab(self):
         tab=QWidget(); root=QVBoxLayout(tab); top=QHBoxLayout(); self.staff_section=QComboBox(); self.staff_section.addItems(["Все",*SECTIONS]); self.staff_section.currentTextChanged.connect(self.refresh_staff); self.staff_search=QLineEdit(); self.staff_search.setPlaceholderText("ФИО, табельный номер, должность, телефон или № штатной единицы..."); self.staff_search.textChanged.connect(self.refresh_staff)
-        add_employee=QPushButton("Добавить работника"); add_employee.clicked.connect(self.add_employee); add=QPushButton("Добавить штатную единицу"); add.clicked.connect(self.add_staff); edit=QPushButton("Изменить"); edit.clicked.connect(self.edit_staff); delete=QPushButton("Удалить единицу"); delete.clicked.connect(self.delete_staff); archive=QPushButton("Архив работников"); archive.clicked.connect(self.show_archive); unassigned=QPushButton("Не назначены на штатную единицу"); unassigned.clicked.connect(self.show_unassigned); batch=QPushButton("Назначить нескольким"); batch.clicked.connect(self.assign_batch_from_staff); columns=QPushButton("Колонки ▼"); columns.clicked.connect(self.show_column_menu); reset=QPushButton("Сбросить фильтры"); reset.clicked.connect(self.reset_staff_filters)
-        top.addWidget(QLabel("Отделение:")); top.addWidget(self.staff_section); top.addWidget(QLabel("Поиск:")); top.addWidget(self.staff_search,1); [top.addWidget(button) for button in (add_employee,add,edit,delete,archive,unassigned,batch,columns,reset)]; root.addLayout(top)
+        add_employee=QPushButton("Добавить работника"); add_employee.clicked.connect(self.add_employee)
+        add=QPushButton("Добавить штатную единицу"); add.clicked.connect(self.add_staff)
+        edit=QPushButton("Изменить"); edit.clicked.connect(self.edit_staff)
+        actions = QMenu(self)
+        for text, handler in (("Удалить единицу", self.delete_staff), ("Архив работников", self.show_archive), ("Не назначены на штатную единицу", self.show_unassigned), ("Назначить нескольким", self.assign_batch_from_staff), ("Настроить колонки", self.show_column_menu), ("Сбросить фильтры", self.reset_staff_filters)):
+            action = actions.addAction(text); action.triggered.connect(handler)
+        more = QToolButton(); more.setText("Действия ▼"); more.setMenu(actions); more.setPopupMode(QToolButton.InstantPopup)
+        top.addWidget(QLabel("Отделение:")); top.addWidget(self.staff_section); top.addWidget(QLabel("Поиск:")); top.addWidget(self.staff_search,1); [top.addWidget(button) for button in (add_employee,add,edit,more)]; root.addLayout(top)
         self.staff_metrics_label=QLabel(); self.staff_metrics_label.setStyleSheet("font-size:16px;font-weight:600;padding:8px;"); root.addWidget(self.staff_metrics_label)
         self.staff_headers=["ID","№","Отдел","Отделение","Группа","Должность","ФИО","Таб. №","Дата рождения","Возраст","Телефон","Вооружение","Email","Дата приёма","Последняя МК","Последняя ПП","График"]
         self.staff_filters: dict[str, set[str]] = {}; self.staff_table=SpreadsheetTable(0,len(self.staff_headers)); self.staff_table.setHorizontalHeaderLabels(self.staff_headers); self.staff_table.setColumnHidden(0,True); style_table(self.staff_table); self.staff_table.setSelectionMode(QTableWidget.ExtendedSelection); header=self.staff_table.horizontalHeader(); header.setSectionResizeMode(QHeaderView.Interactive); header.setSortIndicatorShown(True); header.sectionClicked.connect(self.sort_staff_by_column); header.setContextMenuPolicy(Qt.CustomContextMenu); header.customContextMenuRequested.connect(self.open_staff_filter_menu); header.sectionResized.connect(self.save_staff_layout); self.staff_table.doubleClicked.connect(self.open_staff_row); self._restore_staff_layout(); root.addWidget(self.staff_table); self.tabs.addTab(tab,"ШДС")
@@ -859,7 +920,8 @@ class MainWindow(QMainWindow):
             visible, widths = {}, {}
         for index, header in enumerate(self.staff_headers[1:], 1):
             if header in visible: self.staff_table.setColumnHidden(index, not bool(visible[header]))
-            if header in widths: self.staff_table.setColumnWidth(index, int(widths[header]))
+            if header in widths:
+                self.staff_table.setColumnWidth(index, max(80, min(int(widths[header]), 320)))
 
     def save_staff_layout(self, *_args):
         visible={header:not self.staff_table.isColumnHidden(index) for index,header in enumerate(self.staff_headers[1:],1)}
@@ -1006,9 +1068,17 @@ class MainWindow(QMainWindow):
         if QMessageBox.question(self, "Удалить событие", "Удалить выбранную запись?") == QMessageBox.Yes: self.service.delete_event(event_id); self.refresh_all()
     def copy_summary(self): QApplication.clipboard().setText(self.service.render_daily_text(self.summary_date.date().toString("yyyy-MM-dd"))); QMessageBox.information(self, "Готово", "Расход скопирован в буфер обмена.")
     def seed_demo(self):
-        try: self.service.seed_demo_data(); self.refresh_all(); QMessageBox.information(self, "Демо", "Добавлены 4 вымышленных работника и несколько событий.")
+        try:
+            result = self.service.create_demo_data()
+            self.refresh_all()
+            QMessageBox.information(self, "Демо", f"Добавлены {result['employees']} вымышленных работника, {result['staff_units']} штатные единицы и {result['events']} события.")
         except ValueError as exc: QMessageBox.warning(self, "Демо", str(exc))
 
 
 def run_app(db_path: Path):
-    app = QApplication.instance() or QApplication([]); app.setApplicationName(APP_NAME); window = MainWindow(db_path); window.show(); return app.exec()
+    app = QApplication.instance() or QApplication([])
+    app.setApplicationName(APP_NAME)
+    ThemeManager().apply(app)
+    window = MainWindow(db_path)
+    window.show()
+    return app.exec()

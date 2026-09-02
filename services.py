@@ -148,8 +148,7 @@ class PersonnelService:
 
     def save_photo(self, employee_id: int, source: str | Path) -> str:
         """Create a compact JPEG in data/photos and persist only its relative path."""
-        name = f"{uuid4().hex}.jpg"
-        target = self.db.photos_dir / name
+        target = self.db.photos_dir / f"{uuid4().hex}.jpg"
         if QImage is None:
             # The application distribution always installs PySide6.  This
             # fallback is deliberately limited to headless service tests.
@@ -160,8 +159,13 @@ class PersonnelService:
                 raise ValueError("Не удалось прочитать файл изображения.")
             image = image.scaled(600, 750, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             if not image.save(str(target), "JPG", 88):
-                raise ValueError("Не удалось сохранить уменьшенную фотографию.")
-        relative = f"photos/{name}"
+                # Some Qt installations do not expose the JPEG image plugin in
+                # headless or restricted environments. PNG keeps the photo
+                # usable instead of failing to save a valid image altogether.
+                target = target.with_suffix(".png")
+                if not image.save(str(target), "PNG"):
+                    raise ValueError("Не удалось сохранить уменьшенную фотографию.")
+        relative = f"photos/{target.name}"
         old: str | None = None
         with self.db.connect() as conn:
             row = conn.execute("SELECT photo_path FROM employees WHERE id=?", (employee_id,)).fetchone()
@@ -652,9 +656,50 @@ class PersonnelService:
         m=self.staff_metrics(target_date)["total"]
         return "\n".join([date.fromisoformat(target_date).strftime("%d.%m.%Y"),"",f"По штату - {m['staff']}",f"По списку - {m['listed']}",f"Вакантно - {m['vacant']}",f"Отсутствуют - {m['absent']}",f"На лицо - {m['present']}"])
 
-    def seed_demo_data(self) -> None:
-        if self.list_employees(include_archived=True): raise ValueError("Демо-данные можно добавить только в пустую базу")
-        demo = [("Иванов Иван Иванович", "000001", "3 отдел", "инспектор", "1990-05-12", "2020-03-01", "2026-08-24"), ("Петров Пётр Петрович", "000002", "3 отдел", "инспектор", "1988-02-03", "2019-06-15", "2026-08-25"), ("Сидоров Алексей Сергеевич", "000003", "3 отдел", "старший инспектор", "1985-09-21", "2018-11-10", "2026-08-26"), ("Орлов Дмитрий Андреевич", "000004", "3 отдел", "инспектор", "1992-01-19", "2023-04-05", "2026-08-27")]
-        ids = [self.save_employee({"fio": fio, "personnel_no": number, "department": dep, "position": pos, "birth_date": birth, "employment_date": hired, "factual_address": "", "registration_address": "", "phone": "", "email": "", "schedule_type": "1/3", "schedule_anchor_date": anchor, "employment_status": "Работает"}) for fio, number, dep, pos, birth, hired, anchor in demo]
-        self.add_event({"employee_id": str(ids[1]), "event_type": "Отпуск", "subtype": "очередной", "start_date": "2026-08-24", "end_date": "2026-08-31", "location": "", "basis": "", "notes": "Демо"})
-        self.add_event({"employee_id": str(ids[2]), "event_type": "Сдача медкомиссии", "subtype": "", "start_date": "2026-08-25", "end_date": "2026-08-25", "location": "", "basis": "", "notes": "Демо"})
+    def create_demo_data(self) -> dict[str, int]:
+        """Create the complete demo set only in an empty database.
+
+        The records and their staff units are inserted in one transaction, so a
+        failed demo setup cannot leave partially visible test workers behind.
+        """
+        if self.list_employees(include_archived=True):
+            raise ValueError("Демо-данные можно добавить только в пустую базу")
+        demo = [
+            ("Д-1", "Иванов Иван Иванович", "000001", "1 отделение", "1 группа", "инспектор", "1990-05-12", "2020-03-01", "2026-08-24"),
+            ("Д-2", "Петров Пётр Петрович", "000002", "1 отделение", "1 группа", "инспектор", "1988-02-03", "2019-06-15", "2026-08-25"),
+            ("Д-3", "Сидоров Алексей Сергеевич", "000003", "2 отделение", "2 группа", "старший инспектор", "1985-09-21", "2018-11-10", "2026-08-26"),
+            ("Д-4", "Орлов Дмитрий Андреевич", "000004", "2 отделение", "2 группа", "инспектор", "1992-01-19", "2023-04-05", "2026-08-27"),
+        ]
+        employee_ids: list[int] = []
+        with self.db.connect() as conn:
+            for unit_number, fio, number, section, group_name, position, birth, hired, anchor in demo:
+                cur = conn.execute(
+                    """INSERT INTO employees
+                       (fio, personnel_no, department, position, birth_date, factual_address,
+                        registration_address, phone, email, employment_date, schedule_type,
+                        schedule_anchor_date, employment_status, section, group_name)
+                       VALUES (?, ?, '3 отдел', ?, ?, '', '', '', '', ?, '1/3', ?, 'Работает', ?, ?)""",
+                    (fio, number, position, birth, hired, anchor, section, group_name),
+                )
+                employee_id = int(cur.lastrowid)
+                employee_ids.append(employee_id)
+                conn.execute(
+                    """INSERT INTO staff_units(unit_number, department, section, group_name, position, employee_id)
+                       VALUES (?, '3 отдел', ?, ?, ?, ?)""",
+                    (unit_number, section, group_name, position, employee_id),
+                )
+            conn.execute(
+                """INSERT INTO events(employee_id, event_type, subtype, start_date, end_date, location, basis, notes)
+                   VALUES (?, 'Отпуск', 'очередной', '2026-08-24', '2026-08-31', '', '', 'Демо')""",
+                (employee_ids[1],),
+            )
+            conn.execute(
+                """INSERT INTO events(employee_id, event_type, subtype, start_date, end_date, location, basis, notes)
+                   VALUES (?, 'Сдача медкомиссии', '', '2026-08-25', '2026-08-25', '', '', 'Демо')""",
+                (employee_ids[2],),
+            )
+        return {"employees": len(employee_ids), "staff_units": len(employee_ids), "events": 2}
+
+    def seed_demo_data(self) -> dict[str, int]:
+        """Compatibility alias for older callers."""
+        return self.create_demo_data()
