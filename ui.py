@@ -1078,7 +1078,8 @@ class MainWindow(QMainWindow):
 def run_app(db_path: Path):
     app = QApplication.instance() or QApplication([])
     app.setApplicationName(APP_NAME)
-    ThemeManager().apply(app)
+    # v0.5.1 keeps the established native widget appearance.  ThemeManager is
+    # intentionally opt-in until the visual redesign planned for v0.6.
     window = MainWindow(db_path)
     window.show()
     return app.exec()
