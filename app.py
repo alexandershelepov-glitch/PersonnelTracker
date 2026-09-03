@@ -21,7 +21,7 @@ def database_path() -> Path:
 def main() -> int:
     from PySide6.QtWidgets import QApplication
 
-    from assignment_history import install_assignment_history_features
+    from assignment_history_compat import install_assignment_history_features
     from backup_local import install_backup_features
     from csv_data import install_csv_features
     from theme import ThemeManager
