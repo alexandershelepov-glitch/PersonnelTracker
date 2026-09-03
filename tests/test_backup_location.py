@@ -87,6 +87,18 @@ class LocalBackupManagerTests(unittest.TestCase):
         self.assertTrue(result.safety_backup.exists())
         self.assertIn("before-restore", result.safety_backup.name)
 
+    def test_restore_does_not_replace_machine_local_backup_directory(self):
+        # Create an archive while the database still contains the default
+        # (empty) backup-directory setting.
+        archive = self.manager.create_backup(kind="manual")
+        custom = self.root / "windows-local-backups"
+        self.manager.set_backups_dir(custom)
+
+        self.manager.restore_backup(archive)
+
+        self.assertEqual(self.manager.configured_backups_dir, custom.resolve())
+        self.assertEqual(self.db.get_setting(self.manager.SETTING_KEY), str(custom.resolve()))
+
 
 if __name__ == "__main__":
     unittest.main()
