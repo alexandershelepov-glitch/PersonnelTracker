@@ -5,13 +5,14 @@ from pathlib import Path
 from typing import Any
 
 from backup import BackupError, BackupManager
+from config import APP_NAME
 
 
 class LocalBackupManager(BackupManager):
     """Backup manager with a user-selected local backup directory.
 
     The working SQLite database always stays where the application keeps it.
-    Only ZIP backups move to the configured directory.  The choice is persisted
+    Only ZIP backups move to the configured directory. The choice is persisted
     in the existing settings table, so no schema migration is required.
     """
 
@@ -33,7 +34,7 @@ class LocalBackupManager(BackupManager):
             candidate.mkdir(parents=True, exist_ok=True)
             if not candidate.is_dir():
                 raise OSError("not a directory")
-            # A directory may exist but still be read-only.  Test an actual
+            # A directory may exist but still be read-only. Test an actual
             # create/delete operation so failures are detected before a backup.
             with tempfile.NamedTemporaryFile(prefix=".pt-write-test-", dir=candidate, delete=True):
                 pass
@@ -49,7 +50,7 @@ class LocalBackupManager(BackupManager):
 
     def set_backups_dir(self, path: str | Path) -> Path:
         candidate = self._ensure_writable_directory(Path(path))
-        # Persist only after the new location has passed the write test.  If
+        # Persist only after the new location has passed the write test. If
         # validation fails, the previous setting remains untouched.
         self.db.set_setting(self.SETTING_KEY, str(candidate))
         return candidate
@@ -58,6 +59,15 @@ class LocalBackupManager(BackupManager):
         candidate = self._ensure_writable_directory(self.default_backups_dir)
         self.db.set_setting(self.SETTING_KEY, "")
         return candidate
+
+    def restore_backup(self, archive_path: str | Path):
+        # The backup directory is machine-local configuration. A database ZIP
+        # copied from another Mac/Windows PC may contain a path that does not
+        # exist here, so restoring personnel data must not replace this setting.
+        local_setting = self.db.get_setting(self.SETTING_KEY, "")
+        result = super().restore_backup(archive_path)
+        self.db.set_setting(self.SETTING_KEY, local_setting)
+        return result
 
 
 def install_backup_features(window: Any) -> None:
@@ -240,9 +250,14 @@ def install_backup_features(window: Any) -> None:
         service_menu.addAction("Восстановить из копии", restore_backup)
         service_menu.addAction("Выбрать папку резервных копий", choose_backup_folder)
 
-    # Automatic backup failure must never prevent application startup.  This is
-    # especially important on a laptop if a previously selected external or
-    # network drive is currently unavailable.
+    window.setWindowTitle(APP_NAME + " — версия 0.7")
+    for label in window.findChildren(QLabel):
+        if label.text() == "v0.6":
+            label.setText("v0.7")
+
+    # Automatic backup failure must never prevent application startup. This is
+    # especially important if a previously selected external or network drive
+    # is currently unavailable.
     try:
         created = manager.create_auto_backup_if_due()
         if created:
