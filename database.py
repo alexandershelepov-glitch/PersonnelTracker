@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS employees (
  department TEXT NOT NULL DEFAULT '', position TEXT NOT NULL DEFAULT '', section TEXT NOT NULL DEFAULT 'Не указано', group_name TEXT,
  birth_date TEXT, factual_address TEXT NOT NULL DEFAULT '', registration_address TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '', employment_date TEXT,
  schedule_type TEXT NOT NULL DEFAULT 'Не задан', schedule_anchor_date TEXT, employment_status TEXT NOT NULL DEFAULT 'Работает', archive_date TEXT,
+ education TEXT NOT NULL DEFAULT '', certificate_number TEXT NOT NULL DEFAULT '',
  photo_path TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS staff_units (
  id INTEGER PRIMARY KEY AUTOINCREMENT, unit_number TEXT NOT NULL UNIQUE, department TEXT NOT NULL DEFAULT '',
@@ -27,7 +28,7 @@ CREATE INDEX IF NOT EXISTS idx_events_dates ON events(start_date,end_date);
 """
 
 class Database:
- CURRENT_VERSION=5
+ CURRENT_VERSION=6
  def __init__(self,path:str|Path): self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True); self.initialize()
  @property
  def photos_dir(self): p=self.path.parent/'photos'; p.mkdir(parents=True,exist_ok=True); return p
@@ -45,6 +46,10 @@ class Database:
    if 'photo_path' not in cols: c.execute('ALTER TABLE employees ADD COLUMN photo_path TEXT')
    if 'section' not in cols: c.execute("ALTER TABLE employees ADD COLUMN section TEXT NOT NULL DEFAULT 'Не указано'")
    if 'group_name' not in cols: c.execute('ALTER TABLE employees ADD COLUMN group_name TEXT')
+   # v0.6 addition: free-text education and certificate number.  Safe to run
+   # repeatedly — existing rows keep their data and get empty defaults.
+   if 'education' not in cols: c.execute("ALTER TABLE employees ADD COLUMN education TEXT NOT NULL DEFAULT ''")
+   if 'certificate_number' not in cols: c.execute("ALTER TABLE employees ADD COLUMN certificate_number TEXT NOT NULL DEFAULT ''")
    unit_cols={r['name'] for r in c.execute('PRAGMA table_info(staff_units)')}
    if 'group_name' not in unit_cols: c.execute('ALTER TABLE staff_units ADD COLUMN group_name TEXT')
    # v0.5 stage 1: batch assignments. Existing rows keep batch_id=NULL.

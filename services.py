@@ -105,7 +105,7 @@ class PersonnelService:
             "fio", "personnel_no", "department", "position", "birth_date",
             "factual_address", "registration_address", "phone", "email",
             "employment_date", "schedule_type", "schedule_anchor_date", "employment_status", "section",
-            "group_name",
+            "group_name", "education", "certificate_number",
         ]
         nullable = {"birth_date", "employment_date", "schedule_anchor_date", "archive_date", "group_name"}
         values = [data.get(field) or None if field in nullable else data.get(field, "") for field in fields]

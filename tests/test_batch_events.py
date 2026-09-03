@@ -49,7 +49,7 @@ class BatchEventTests(unittest.TestCase):
             row = conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
         self.assertIn("batch_id", columns)
         self.assertIsNone(row["batch_id"])
-        self.assertEqual(migrated.get_setting("schema_version"), "5")
+        self.assertEqual(migrated.get_setting("schema_version"), "6")
 
     # 24.2 creation ---------------------------------------------------------
     def test_batch_creation_assigns_one_batch_id_to_every_record(self):

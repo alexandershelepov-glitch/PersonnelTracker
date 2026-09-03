@@ -78,7 +78,7 @@ class V04ToV05MigrationTests(unittest.TestCase):
             self.assertEqual(row["event_type"], "Отпуск")
             self.assertEqual(row["notes"], "Старая запись v0.4")
             self.assertIsNone(row["batch_id"])
-            self.assertEqual(db.get_setting("schema_version"), "5")
+            self.assertEqual(db.get_setting("schema_version"), "6")
 
             # Repeated initialization must remain safe and idempotent.
             Database(db_path)
