@@ -275,7 +275,7 @@ class PersonnelService:
                 if occupant and employee_id and int(occupant) != employee_id:
                     raise ValueError("Штатная единица уже занята.")
             if employee_id:
-                occupied=conn.execute("SELECT id FROM staff_units WHERE employee_id=? AND id<>",(employee_id,unit_id or -1)).fetchone()
+                occupied=conn.execute("SELECT id FROM staff_units WHERE employee_id=? AND id<>?",(employee_id,unit_id or -1)).fetchone()
                 if occupied: raise ValueError("Этот работник уже занимает другую штатную единицу.")
             if unit_id:
                 conn.execute("UPDATE staff_units SET unit_number=?,department=?,section=?,group_name=?,position=?,employee_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(data["unit_number"].strip(),data.get("department","").strip(),data["section"],group_name,data["position"].strip(),employee_id,unit_id)); result=unit_id
