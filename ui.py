@@ -122,7 +122,7 @@ class EmployeeDialog(QDialog):
         self.current_daily_status: str | None = None
         self.setWindowTitle("Карточка работника")
         self.setMinimumSize(640, 480)
-        fit_to_available_screen(self, 1040, 720, 640, 480)
+        fit_to_available_screen(self, 1120, 740, 640, 480)
         self.tabs = QTabWidget(); self.main_tab = QWidget()
         self.main_scroll = QScrollArea(); self.main_scroll.setWidgetResizable(True); self.main_scroll.setWidget(self.main_tab)
         self.tabs.addTab(self.main_scroll, "Основное")
@@ -150,7 +150,7 @@ class EmployeeDialog(QDialog):
         self.copy_data=QComboBox(); self.copy_data.addItems(["Скопировать ▼","ФИО","ФИО + табельный номер","Телефон","Должность"]); self.copy_data.activated.connect(self.copy_employee_data); card_layout.addWidget(self.copy_data,4,2)
         root.addWidget(card)
 
-        self.fio, self.personnel_no = QLineEdit(), QLineEdit(); self.fio.setMinimumWidth(420)
+        self.fio, self.personnel_no = QLineEdit(), QLineEdit(); self.fio.setMinimumWidth(340)
         self.department, self.position = QLineEdit(), QLineEdit(); self.section = QComboBox(); self.section.setEditable(True); self.section.setInsertPolicy(QComboBox.NoInsert); self.section.addItems(SECTIONS)
         self.birth_date, self.employment_date, self.archive_date = new_date_edit(True), new_date_edit(True), new_date_edit(True)
         self.factual_address, self.registration_address = QLineEdit(), QLineEdit()
@@ -164,14 +164,17 @@ class EmployeeDialog(QDialog):
         self.employment_status.currentTextChanged.connect(self.update_header); self.employment_status.currentTextChanged.connect(self._status_changed)
         self.birth_date.dateChanged.connect(self.update_age)
         forms = QGridLayout(); forms.setColumnStretch(0, 1); forms.setColumnStretch(1, 1)
-        self.age_label=QLabel("Не указан"); personal = QGroupBox("Личные данные"); f = QFormLayout(personal); f.addRow("ФИО*", self.fio); f.addRow("Табельный номер*", self.personnel_no); f.addRow("Дата рождения", self.birth_date); f.addRow("Возраст", self.age_label); f.addRow("Дата начала работы", self.employment_date)
+        self.education = QComboBox(); self.education.setEditable(True); self.education.setInsertPolicy(QComboBox.NoInsert); self.education.addItems(["", "высшее", "среднее профессиональное", "среднее общее"]); attach_completer(self.education.lineEdit(), ["высшее", "среднее профессиональное", "среднее общее"])
+        self.age_label=QLabel("Не указан"); personal = QGroupBox("Личные данные"); f = QFormLayout(personal); f.addRow("ФИО*", self.fio); f.addRow("Табельный номер*", self.personnel_no); f.addRow("Дата рождения", self.birth_date); f.addRow("Возраст", self.age_label); f.addRow("Дата начала работы", self.employment_date); f.addRow("Образование", self.education)
         contacts = QGroupBox("Контакты"); f = QFormLayout(contacts); f.addRow("Телефон", self.phone); f.addRow("E-mail", self.email)
         addresses = QGroupBox("Адреса"); f = QFormLayout(addresses); f.addRow("Фактический адрес", self.factual_address); f.addRow("Адрес регистрации", self.registration_address)
         self.group_label = QLineEdit(); self.group_label.setPlaceholderText("Например, 1 группа")
         self.assignment_status = QLabel("Не назначен на штатную единицу"); self.assignment_status.setWordWrap(True)
-        service = QGroupBox("Служебные данные"); f = QFormLayout(service); f.addRow("Подразделение", self.department); f.addRow("Отделение", self.section); f.addRow("Группа", self.group_label); f.addRow("Должность", self.position); f.addRow("Статус работника", self.employment_status); f.addRow("С какого числа отсутствует", self.archive_date); f.addRow("Штатное назначение", self.assignment_status)
+        self.certificate_number = QLineEdit()
+        service = QGroupBox("Служебные данные"); f = QFormLayout(service); f.setRowWrapPolicy(QFormLayout.WrapLongRows); f.addRow("Подразделение", self.department); f.addRow("Отделение", self.section); f.addRow("Группа", self.group_label); f.addRow("Должность", self.position); f.addRow("Номер удостоверения", self.certificate_number); f.addRow("Статус работника", self.employment_status); f.addRow("С какого числа отсутствует", self.archive_date); f.addRow("Штатное назначение", self.assignment_status)
         self._apply_field_completers()
-        schedule = QGroupBox("График работы"); f = QFormLayout(schedule); f.addRow("График", self.schedule_type); f.addRow("Дата рабочей смены", self.schedule_anchor); f.addRow(QLabel("Укажите любую известную рабочую смену. Остальные даты программа рассчитает автоматически."))
+        schedule = QGroupBox("График работы"); f = QFormLayout(schedule); f.addRow("График", self.schedule_type); f.addRow("Дата рабочей смены", self.schedule_anchor)
+        schedule_hint = QLabel("Укажите любую известную рабочую смену. Остальные даты программа рассчитает автоматически."); schedule_hint.setWordWrap(True); schedule_hint.setObjectName("secondaryText"); f.addRow(schedule_hint)
         control = QGroupBox("Контроль"); f = QFormLayout(control); f.addRow("Последняя медкомиссия", self._summary_row(self.latest_medical, "Медкомиссия")); f.addRow("Последняя периодическая проверка", self._summary_row(self.latest_periodic, "Периодическая проверка"))
         forms.addWidget(personal, 0, 0); forms.addWidget(service, 0, 1); forms.addWidget(contacts, 1, 0); forms.addWidget(addresses, 1, 1); forms.addWidget(schedule, 2, 0); forms.addWidget(control, 2, 1)
         root.addLayout(forms); root.addStretch()
@@ -242,6 +245,10 @@ class EmployeeDialog(QDialog):
         if not person: return
         for key, widget in [("fio", self.fio), ("personnel_no", self.personnel_no), ("effective_department", self.department), ("effective_position", self.position), ("factual_address", self.factual_address), ("registration_address", self.registration_address), ("phone", self.phone), ("email", self.email)]: widget.setText(person[key] or "")
         set_dateedit(self.birth_date, person["birth_date"], True); set_dateedit(self.employment_date, person["employment_date"], True); set_dateedit(self.schedule_anchor, person["schedule_anchor_date"], True); set_dateedit(self.archive_date, person["archive_date"], True)
+        education = person["education"] or ""
+        if education and self.education.findText(education) < 0:
+            self.education.addItem(education)
+        self.education.setCurrentText(education); self.certificate_number.setText(person["certificate_number"] or "")
         schedule = person["schedule_type"] or "Не задан"
         if self.schedule_type.findText(schedule) < 0:
             self.schedule_type.addItem(schedule)
@@ -260,7 +267,7 @@ class EmployeeDialog(QDialog):
         self._clean_state = self.form_state()
 
     def form_state(self):
-        return (self.fio.text(),self.personnel_no.text(),self.department.text(),self.section.currentText(),self.group_label.text(),self.position.text(),iso_from_dateedit(self.birth_date,True),iso_from_dateedit(self.employment_date,True),self.factual_address.text(),self.registration_address.text(),self.phone.text(),self.email.text(),self.schedule_type.currentText(),iso_from_dateedit(self.schedule_anchor,True),self.employment_status.currentText(),iso_from_dateedit(self.archive_date,True))
+        return (self.fio.text(),self.personnel_no.text(),self.department.text(),self.section.currentText(),self.group_label.text(),self.position.text(),iso_from_dateedit(self.birth_date,True),iso_from_dateedit(self.employment_date,True),self.factual_address.text(),self.registration_address.text(),self.phone.text(),self.email.text(),self.schedule_type.currentText(),iso_from_dateedit(self.schedule_anchor,True),self.employment_status.currentText(),iso_from_dateedit(self.archive_date,True),self.education.currentText().strip(),self.certificate_number.text().strip())
 
     def has_unsaved_changes(self):
         return self._clean_state is not None and self.form_state()!=self._clean_state
@@ -313,7 +320,7 @@ class EmployeeDialog(QDialog):
             QMessageBox.warning(self, "Проверка", "Укажите ФИО."); self.fio.setFocus(); return False
         if not self.personnel_no.text().strip():
             QMessageBox.warning(self, "Проверка", "Укажите табельный номер."); self.personnel_no.setFocus(); return False
-        data = {"fio": self.fio.text().strip(), "personnel_no": self.personnel_no.text().strip(), "department": self.department.text().strip(), "section": self.section.currentText(), "group_name": self.group_label.text().strip(), "position": self.position.text().strip(), "birth_date": iso_from_dateedit(self.birth_date, True), "employment_date": iso_from_dateedit(self.employment_date, True), "factual_address": self.factual_address.text().strip(), "registration_address": self.registration_address.text().strip(), "phone": self.phone.text().strip(), "email": self.email.text().strip(), "schedule_type": self.schedule_type.currentText(), "schedule_anchor_date": iso_from_dateedit(self.schedule_anchor, True) if self.schedule_type.currentText() == "1/3" else None, "employment_status": self.employment_status.currentText(), "archive_date": iso_from_dateedit(self.archive_date, True)}
+        data = {"fio": self.fio.text().strip(), "personnel_no": self.personnel_no.text().strip(), "department": self.department.text().strip(), "section": self.section.currentText(), "group_name": self.group_label.text().strip(), "position": self.position.text().strip(), "birth_date": iso_from_dateedit(self.birth_date, True), "employment_date": iso_from_dateedit(self.employment_date, True), "factual_address": self.factual_address.text().strip(), "registration_address": self.registration_address.text().strip(), "phone": self.phone.text().strip(), "email": self.email.text().strip(), "schedule_type": self.schedule_type.currentText(), "schedule_anchor_date": iso_from_dateedit(self.schedule_anchor, True) if self.schedule_type.currentText() == "1/3" else None, "employment_status": self.employment_status.currentText(), "archive_date": iso_from_dateedit(self.archive_date, True), "education": self.education.currentText().strip(), "certificate_number": self.certificate_number.text().strip()}
         try:
             is_new = self.employee_id is None
             self.employee_id = self.service.save_employee(data, self.employee_id); self.created_in_dialog = self.created_in_dialog or is_new; self.load_employee(); self.refresh_records()
