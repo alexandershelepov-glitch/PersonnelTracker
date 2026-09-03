@@ -66,11 +66,14 @@ def main() -> int:
     window = MainWindow(Path(tmp.name) / "smoke.db")
     window.service.create_demo_data()
     employees = window.service.list_employees()
+    employees_by_id = {int(employee["id"]): employee for employee in employees}
     units = []
-    for unit, number, employee, group in zip(window.service.list_staff_units(), ("2", "10", "М-1", "М-10"), employees, ("1 группа", "2 группа", "", "3 группа")):
+    # Переименовываем штатные единицы, сохраняя их текущих occupants:
+    # переназначение занятой единицы другому работнику запрещено сервисом.
+    for unit, number, group in zip(window.service.list_staff_units(), ("2", "10", "М-1", "М-10"), ("1 группа", "2 группа", "", "3 группа")):
         units.append(window.service.save_staff_unit({
             "unit_number": number, "department": "3 отдел", "section": "1 отделение" if number != "М-10" else "2 отделение",
-            "group_name": group, "position": "инспектор", "employee_id": employee["id"]}, unit["id"]))
+            "group_name": group, "position": "инспектор", "employee_id": unit["employee_id"]}, unit["id"]))
     window.service.add_weapon(employees[0]["id"], "ПМ", "АБ123")
     window.refresh_all()
     window.show()
@@ -93,7 +96,7 @@ def main() -> int:
     col_age = headers.index("Возраст")
     click_header(window, col_age)
     ages = [v for v in column_values(table, col_age) if v != "—"]
-    check("A4: возраст как число", ages == sorted(ages, key=int) and len(ages) == 3)
+    check("A4: возраст как число", ages == sorted(ages, key=int) and len(ages) == 4)
     col_birth = headers.index("Дата рождения")
     click_header(window, col_birth)
     births = [v for v in column_values(table, col_birth) if v != "—"]
