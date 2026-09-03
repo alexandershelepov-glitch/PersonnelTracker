@@ -22,6 +22,7 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     from backup import install_backup_features
+    from csv_data import install_csv_features
     from theme import ThemeManager
     from ui import MainWindow
 
@@ -33,6 +34,7 @@ def main() -> int:
     ThemeManager().apply(app)
     window = MainWindow(db_path)
     install_backup_features(window)
+    install_csv_features(window)
     window.show()
     return app.exec()
 
