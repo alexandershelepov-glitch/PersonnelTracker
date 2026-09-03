@@ -7,8 +7,8 @@ from config import APP_NAME, DB_FILENAME
 
 
 def data_dir() -> Path:
-    # Пока храним базу рядом с приложением в ./data.
-    # Позже путь можно вынести в настройки / корпоративную папку.
+    # Рабочая база остаётся локальной рядом с приложением в ./data.
+    # Резервные ZIP-копии могут храниться в отдельной папке, выбранной в UI.
     base = Path(__file__).resolve().parent
     return base / "data"
 
@@ -21,7 +21,7 @@ def database_path() -> Path:
 def main() -> int:
     from PySide6.QtWidgets import QApplication
 
-    from backup import install_backup_features
+    from backup_local import install_backup_features
     from csv_data import install_csv_features
     from theme import ThemeManager
     from ui import MainWindow
