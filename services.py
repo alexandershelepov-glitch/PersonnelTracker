@@ -105,7 +105,7 @@ class PersonnelService:
             "fio", "personnel_no", "department", "position", "birth_date",
             "factual_address", "registration_address", "phone", "email",
             "employment_date", "schedule_type", "schedule_anchor_date", "employment_status", "section",
-            "group_name",
+            "group_name", "education", "certificate_number",
         ]
         nullable = {"birth_date", "employment_date", "schedule_anchor_date", "archive_date", "group_name"}
         values = [data.get(field) or None if field in nullable else data.get(field, "") for field in fields]
@@ -275,7 +275,7 @@ class PersonnelService:
                 if occupant and employee_id and int(occupant) != employee_id:
                     raise ValueError("Штатная единица уже занята.")
             if employee_id:
-                occupied=conn.execute("SELECT id FROM staff_units WHERE employee_id=? AND id<>?",(employee_id,unit_id or -1)).fetchone()
+                occupied=conn.execute("SELECT id FROM staff_units WHERE employee_id=? AND id<>",(employee_id,unit_id or -1)).fetchone()
                 if occupied: raise ValueError("Этот работник уже занимает другую штатную единицу.")
             if unit_id:
                 conn.execute("UPDATE staff_units SET unit_number=?,department=?,section=?,group_name=?,position=?,employee_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(data["unit_number"].strip(),data.get("department","").strip(),data["section"],group_name,data["position"].strip(),employee_id,unit_id)); result=unit_id
