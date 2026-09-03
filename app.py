@@ -24,6 +24,7 @@ def main() -> int:
     from assignment_history_compat import install_assignment_history_features
     from backup_local import install_backup_features
     from csv_data import install_csv_features
+    from temporal_snapshot import install_temporal_snapshot_features
     from theme import ThemeManager
     from ui import MainWindow
 
@@ -37,6 +38,7 @@ def main() -> int:
     install_backup_features(window)
     install_csv_features(window)
     install_assignment_history_features(window)
+    install_temporal_snapshot_features(window)
     window.show()
     return app.exec()
 
