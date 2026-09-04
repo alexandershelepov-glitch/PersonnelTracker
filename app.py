@@ -24,6 +24,7 @@ def main() -> int:
     from assignment_history_compat import install_assignment_history_features
     from backup_local import install_backup_features
     from csv_data import install_csv_features
+    from service_page_scroll import install_service_page_scroll
     from temporal_snapshot import install_temporal_snapshot_features
     from theme import ThemeManager
     from ui import MainWindow
@@ -39,6 +40,9 @@ def main() -> int:
     install_csv_features(window)
     install_assignment_history_features(window)
     install_temporal_snapshot_features(window)
+    # Must run last: it collects every Service-page block added above into one
+    # scrollable content area so no group is vertically compressed.
+    install_service_page_scroll(window)
     window.show()
     return app.exec()
 
