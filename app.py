@@ -24,6 +24,7 @@ def main() -> int:
     from assignment_history_compat import install_assignment_history_features
     from backup_local import install_backup_features
     from csv_data import install_csv_features
+    from navigation_context import install_context_navigation
     from service_page_scroll import install_service_page_scroll
     from temporal_snapshot import install_temporal_snapshot_features
     from theme import ThemeManager
@@ -45,6 +46,9 @@ def main() -> int:
     # history/snapshot groups and moves their entry points into the daily hub.
     install_service_page_scroll(window)
     install_workflow_ui(window)
+    # Context navigation is installed last: it distinguishes a sidebar jump
+    # from entering the same root screen through a nested working scenario.
+    install_context_navigation(window)
     window.show()
     return app.exec()
 
