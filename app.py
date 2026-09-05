@@ -28,6 +28,7 @@ def main() -> int:
     from temporal_snapshot import install_temporal_snapshot_features
     from theme import ThemeManager
     from ui import MainWindow
+    from workflow_ui import install_workflow_ui
 
     db_path = database_path()
     print(f"Используется база данных: {db_path}")
@@ -40,9 +41,10 @@ def main() -> int:
     install_csv_features(window)
     install_assignment_history_features(window)
     install_temporal_snapshot_features(window)
-    # Must run last: it collects every Service-page block added above into one
-    # scrollable content area so no group is vertically compressed.
+    # The Service page must become scrollable before v0.8.3 hides the working
+    # history/snapshot groups and moves their entry points into the daily hub.
     install_service_page_scroll(window)
+    install_workflow_ui(window)
     window.show()
     return app.exec()
 
