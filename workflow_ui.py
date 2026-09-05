@@ -6,8 +6,8 @@ from typing import Any, Callable
 def install_workflow_ui(window: Any) -> None:
     """Reframe existing screens around a simple day-to-day workflow.
 
-    This is intentionally a UI-only v0.8.3 adapter.  It does not change the
-    database, event rules, assignment history or backup logic.  Existing v0.8
+    This is intentionally a UI-only v0.8.3 adapter. It does not change the
+    database, event rules, assignment history or backup logic. Existing v0.8
     dialogs remain the source of truth; this layer only puts their entry points
     where a user naturally looks for them.
     """
@@ -51,15 +51,20 @@ def install_workflow_ui(window: Any) -> None:
                 label.setText(text)
                 break
 
-    def existing_button(text: str):
-        for button in window.findChildren(QPushButton):
+    service_page = window.pages.widget(4)
+
+    def source_button(text: str):
+        """Find the original feature button only inside Settings/Service."""
+        if service_page is None:
+            return None
+        for button in service_page.findChildren(QPushButton):
             if button.text() == text:
                 return button
         return None
 
     def forward_to_button(text: str) -> Callable[[], None]:
         def run() -> None:
-            button = existing_button(text)
+            button = source_button(text)
             if button is not None:
                 button.click()
         return run
@@ -112,9 +117,8 @@ def install_workflow_ui(window: Any) -> None:
             if tabs.count() > 1:
                 tabs.setCurrentIndex(1)
 
-    # v0.8 working features no longer belong in Settings.  Their original
+    # v0.8 working features no longer belong in Settings. Their original
     # widgets remain alive (and provide the dialog callbacks), but are hidden.
-    service_page = window.pages.widget(4)
     if service_page is not None:
         for group in service_page.findChildren(QGroupBox):
             if group.title() in {
