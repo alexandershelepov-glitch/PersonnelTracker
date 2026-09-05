@@ -137,3 +137,6 @@ def install_workflow_ui(window: Any) -> None:
                 break
 
     window._workflow_ui_installed = True
+
+    from today_ui import install_today_ui
+    install_today_ui(window)
