@@ -53,12 +53,29 @@ class TodayUiTests(unittest.TestCase):
         install_workflow_ui(self.window)
         self.assertEqual(self.window.pages.count(), 6)
 
+    def test_contextual_back_navigation(self):
+        today_index = self.window.pages.indexOf(self.page)
+        self.window._select_page(0)
+        self.window._select_page(1)
+        self.assertEqual(self.window.pages.currentIndex(), 1)
+        self.window.navigate_back()
+        self.assertEqual(self.window.pages.currentIndex(), 0)
+
+        self.window._select_page(today_index)
+        selected = QDate(2026, 9, 5)
+        self.page.set_date(selected)
+        self.page.open_details()
+        self.assertEqual(self.window.pages.currentIndex(), 3)
+        self.window.navigate_back()
+        self.assertIs(self.window.pages.currentWidget(), self.page)
+        self.assertEqual(self.page.selected_date, selected)
+
     def test_date_metrics_and_details(self):
         chosen = QDate(2026, 8, 24)
         self.page.set_date(chosen)
-        metrics = self.window.service.staff_metrics('2026-08-24')['total']
+        snapshot = self.page.day_state.snapshot('2026-08-24')
         for key, label in self.page.values.items():
-            self.assertEqual(label.text(), str(metrics[key]))
+            self.assertEqual(label.text(), str(getattr(snapshot, key)))
         self.page.next.click()
         self.assertEqual(self.page.selected_date, chosen.addDays(1))
         self.page.previous.click()
