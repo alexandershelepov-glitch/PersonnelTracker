@@ -27,6 +27,7 @@ def main() -> int:
     from csv_data import install_csv_features
     from employee_profile_ui import install_employee_profile_ui
     from navigation_context import install_context_navigation
+    from planning_ui import install_planning_ui
     from service_page_scroll import install_service_page_scroll
     from temporal_snapshot import install_temporal_snapshot_features
     from theme import ThemeManager
@@ -54,6 +55,8 @@ def main() -> int:
     # The profile layer patches the existing EmployeeDialog in-place so every
     # current entry point opens the same redesigned employee profile.
     install_employee_profile_ui(window)
+    # Planning reuses the same events/editors while adding month graph + list.
+    install_planning_ui(window)
     # Context navigation is installed last: it distinguishes a sidebar jump
     # from entering the same root screen through a nested working scenario.
     install_context_navigation(window)
