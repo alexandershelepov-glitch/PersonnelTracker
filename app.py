@@ -19,6 +19,7 @@ def database_path() -> Path:
 
 
 def main() -> int:
+    from PySide6.QtCore import QLocale
     from PySide6.QtWidgets import QApplication
 
     from assignment_history_compat import install_assignment_history_features
@@ -36,6 +37,11 @@ def main() -> int:
 
     db_path = database_path()
     print(f"Используется база данных: {db_path}")
+
+    # The application UI is Russian; set one Qt-wide locale so month/day names
+    # in calendars, planners and date widgets never fall back to English on a
+    # system whose desktop locale is different.
+    QLocale.setDefault(QLocale("ru_RU"))
 
     app = QApplication.instance() or QApplication([])
     app.setApplicationName(APP_NAME)
