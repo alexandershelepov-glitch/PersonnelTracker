@@ -23,6 +23,7 @@ def main() -> int:
 
     from assignment_history_compat import install_assignment_history_features
     from backup_local import install_backup_features
+    from composition_ui import install_composition_ui
     from csv_data import install_csv_features
     from navigation_context import install_context_navigation
     from service_page_scroll import install_service_page_scroll
@@ -46,6 +47,9 @@ def main() -> int:
     # history/snapshot groups and moves their entry points into the daily hub.
     install_service_page_scroll(window)
     install_workflow_ui(window)
+    # Composition reuses the existing SHDS widgets, so it is installed after
+    # the v0.8.3 workflow shell but before context-aware Back navigation.
+    install_composition_ui(window)
     # Context navigation is installed last: it distinguishes a sidebar jump
     # from entering the same root screen through a nested working scenario.
     install_context_navigation(window)
