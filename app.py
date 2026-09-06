@@ -30,6 +30,7 @@ def main() -> int:
     from manual_team_ui import install_manual_team_ui
     from navigation_context import install_context_navigation
     from planning_ui import install_planning_ui
+    from planning_usability import install_planning_usability
     from service_page_scroll import install_service_page_scroll
     from temporal_snapshot import install_temporal_snapshot_features
     from theme import ThemeManager
@@ -67,6 +68,9 @@ def main() -> int:
     install_employee_profile_ui(window)
     # Planning reuses the same events/editors while adding month graph + list.
     install_planning_ui(window)
+    # Keep split planner rows visually locked and allow quick event creation by
+    # clicking an employee name without changing event persistence semantics.
+    install_planning_usability(window)
     # Context navigation is installed last: it distinguishes a sidebar jump
     # from entering the same root screen through a nested working scenario.
     install_context_navigation(window)
