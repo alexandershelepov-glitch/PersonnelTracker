@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from assignment_history_compat import install_assignment_history_features
 from backup_local import install_backup_features
@@ -42,6 +42,9 @@ class CompositionUiTests(unittest.TestCase):
             install_context_navigation,
         ):
             install(self.window)
+        # Demo data is inserted after MainWindow's initial refresh, so force one
+        # shared refresh before assertions about the reused SHDS widgets.
+        self.window.refresh_all()
         self.window.show()
         self.app.processEvents()
 
@@ -61,7 +64,7 @@ class CompositionUiTests(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(tabs.currentIndex(), 0)
         page_title = next(
-            label for label in self.window.pages.widget(0).findChildren(type(self.window.today_page.date_label))
+            label for label in self.window.pages.widget(0).findChildren(QLabel)
             if label.objectName() == "pageTitle"
         )
         self.assertEqual(page_title.text(), "Состав")
@@ -99,7 +102,9 @@ class CompositionUiTests(unittest.TestCase):
         self.assertGreaterEqual(self.window.staff_table.rowCount(), 1)
 
     def test_today_team_action_opens_team_tab_with_back_context(self):
-        self.window._select_page(self.window.pages.indexOf(self.window.today_page), record_history=False)
+        self.window._select_page(
+            self.window.pages.indexOf(self.window.today_page), record_history=False
+        )
         self.window.today_page.team.click()
         self.app.processEvents()
         self.assertEqual(self.window.pages.currentIndex(), 0)
