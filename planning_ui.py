@@ -11,19 +11,7 @@ from datetime import date
 from typing import Any
 
 from config import EVENT_TYPES
-
-
-ABSENCE_TYPES = {
-    "Отпуск", "Больничный", "Выходной", "Отгул", "Отсутствуют по иным причинам",
-}
-SERVICE_TYPES = {
-    "Командировка", "ММ", "Другие объекты", "Организация деятельности",
-}
-TRAINING_TYPES = {
-    "Начальная подготовка", "Самостоятельная подготовка", "Подготовка руководителей",
-    "Плановая подготовка", "Иная подготовка", "Сдача периодической проверки",
-    "Сдача медкомиссии",
-}
+from event_colors import event_background, event_foreground
 
 
 def install_planning_ui(window: Any) -> None:
@@ -59,7 +47,7 @@ def install_planning_ui(window: Any) -> None:
             label.setText("Планирование")
             break
 
-    # Preserve the legacy event page off-screen.  Its widgets and handlers are
+    # Preserve the legacy event page off-screen. Its widgets and handlers are
     # still used by old callbacks/tests, but the user works with the new views.
     legacy = QWidget(page)
     legacy.setObjectName("legacyPlanningPage")
@@ -257,17 +245,11 @@ def install_planning_ui(window: Any) -> None:
             result.append(event)
         return result
 
-    def category_role(event_name: str) -> str:
-        if event_name in ABSENCE_TYPES:
-            return "warning_bg"
-        if event_name in SERVICE_TYPES:
-            return "hover"
-        if event_name in TRAINING_TYPES:
-            return "alternate_row"
-        return "attention_bg"
-
     def event_brush(event_name: str) -> QBrush:
-        return QBrush(window.theme_manager.color(category_role(event_name)))
+        return QBrush(event_background(event_name, window.theme_manager))
+
+    def event_text_brush(event_name: str) -> QBrush:
+        return QBrush(event_foreground(event_name, window.theme_manager))
 
     def open_event_by_id(event_id: int) -> None:
         from ui import BatchGroupDialog, EventDialog
@@ -355,12 +337,14 @@ def install_planning_ui(window: Any) -> None:
             end_date = date.fromisoformat(visible_end)
             start_col = start_date.day - 1
             span = end_date.day - start_date.day + 1
-            label = str(event["event_type"])
+            event_name = str(event["event_type"])
+            label = event_name
             if event["subtype"]:
                 label += f" / {event['subtype']}"
             item = QTableWidgetItem(label)
             item.setData(Qt.UserRole, int(event["id"]))
-            item.setBackground(event_brush(str(event["event_type"])))
+            item.setBackground(event_brush(event_name))
+            item.setForeground(event_text_brush(event_name))
             period = f"{display_date(event['start_date'])} — {display_date(event['end_date'])}"
             location = f"\n{event['location']}" if event["location"] else ""
             item.setToolTip(f"{label}\n{period}{location}")
@@ -390,13 +374,16 @@ def install_planning_ui(window: Any) -> None:
                 event["location"] or "—", event["basis"] or "—", event["notes"] or "—",
                 int(event["id"]),
             ]
-            brush = event_brush(str(event["event_type"]))
+            event_name = str(event["event_type"])
+            brush = event_brush(event_name)
+            text_brush = event_text_brush(event_name)
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 if column == 0:
                     item.setData(Qt.UserRole, int(event["id"]))
                 if column < 8:
                     item.setBackground(brush)
+                    item.setForeground(text_brush)
                 event_list.setItem(row, column, item)
 
     def refresh_planning(*_args) -> None:
@@ -449,17 +436,21 @@ def install_planning_ui(window: Any) -> None:
     event_list.cellDoubleClicked.connect(list_double_clicked)
 
     original_refresh_all = window.refresh_all
+
     def refresh_all() -> None:
         original_refresh_all()
         refresh_graph()
         refresh_list()
+
     window.refresh_all = refresh_all
 
     original_sync = window._sync_theme_controls
+
     def sync_theme() -> None:
         original_sync()
         refresh_graph()
         refresh_list()
+
     window._sync_theme_controls = sync_theme
 
     refresh_filter_values()
