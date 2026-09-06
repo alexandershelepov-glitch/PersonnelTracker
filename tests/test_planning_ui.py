@@ -71,6 +71,18 @@ class PlanningUiTests(unittest.TestCase):
         self.assertEqual(tabs.currentIndex(), 0)
         self.assertTrue(self.window.planning_legacy.isHidden())
 
+    def test_russian_month_weekdays_and_display_dates(self):
+        self.assertIn("Сентябрь", self.window.planning_month_label.text())
+        first_header = self.window.planning_days_table.horizontalHeaderItem(0).text().lower()
+        self.assertIn("вт", first_header)
+
+        self._previous_month()
+        self.assertIn("Август", self.window.planning_month_label.text())
+        event_list = self.window.planning_list_table
+        self.assertGreater(event_list.rowCount(), 0)
+        self.assertRegex(event_list.item(0, 3).text(), r"^\d{2}\.\d{2}\.\d{4}$")
+        self.assertRegex(event_list.item(0, 4).text(), r"^\d{2}\.\d{2}\.\d{4}$")
+
     def test_month_graph_and_list_use_same_events(self):
         # Test execution date is September 2026; demo events are in August.
         self._previous_month()
