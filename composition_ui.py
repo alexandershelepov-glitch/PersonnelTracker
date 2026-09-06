@@ -39,13 +39,11 @@ def install_composition_ui(window: Any) -> None:
         return
 
     # Keep the page title in place and move every existing SHDS control into a
-    # dedicated tab.  These are the original widgets, signals and handlers —
-    # no second staff-unit implementation is introduced.
-    title = None
+    # dedicated tab. These are the original widgets, signals and handlers — no
+    # second staff-unit implementation is introduced.
     for label in page.findChildren(QLabel):
         if label.objectName() == "pageTitle":
-            title = label
-            title.setText("Состав")
+            label.setText("Состав")
             break
 
     shds_tab = QWidget()
@@ -128,7 +126,11 @@ def install_composition_ui(window: Any) -> None:
         "ФИО + телефон",
     ])
     copy_button = QPushButton("Копировать")
+    copy_button.setProperty("role", "primary")
     open_button = QPushButton("Открыть карточку")
+    copy_mode.setEnabled(False)
+    copy_button.setEnabled(False)
+    open_button.setEnabled(False)
     actions.addWidget(selected_label)
     actions.addStretch()
     actions.addWidget(copy_mode)
@@ -154,7 +156,7 @@ def install_composition_ui(window: Any) -> None:
     header.setSectionResizeMode(1, QHeaderView.Stretch)
     directory_root.addWidget(table, 1)
 
-    # Expose the widgets for lightweight UI tests and future team-builder reuse.
+    # Expose widgets for lightweight UI tests and future team-builder reuse.
     window.composition_directory = directory
     window.composition_directory_table = table
     window.composition_search = search
@@ -172,7 +174,7 @@ def install_composition_ui(window: Any) -> None:
         combo.addItem("Все")
         for value in values:
             clean = (value or "").strip()
-            if clean and clean not in {"—", "Не указано"}:
+            if clean and clean != "—":
                 combo.addItem(clean)
         index = combo.findText(current)
         combo.setCurrentIndex(index if index >= 0 else 0)
@@ -249,12 +251,16 @@ def install_composition_ui(window: Any) -> None:
         return ids
 
     def update_selected_count() -> None:
-        selected_label.setText(f"Выбрано: {len(selected_ids())}")
+        count = len(selected_ids())
+        selected_label.setText(f"Выбрано: {count}")
+        copy_mode.setEnabled(count > 0)
+        copy_button.setEnabled(count > 0)
+        open_button.setEnabled(count > 0)
 
     def open_employee(employee_id: int) -> None:
         from ui import EmployeeDialog
         dialog = EmployeeDialog(window.service, employee_id, window)
-        # The profile redesign belongs to v0.8.3-D.  For now preserve the
+        # The profile redesign belongs to v0.8.3-D. For now preserve the
         # working card but make returning to Composition explicit.
         for button in dialog.findChildren(QPushButton):
             if button.text() in {"Закрыть", "Отмена"}:
@@ -320,7 +326,7 @@ def install_composition_ui(window: Any) -> None:
     team_root.setContentsMargins(8, 14, 8, 8)
     team_root.setSpacing(14)
     team_title = QLabel("Сформировать команду")
-    team_title.setObjectName("todaySectionTitle")
+    team_title.setObjectName("pageTitle")
     team_root.addWidget(team_title)
     team_hint = QLabel(
         "Раздел подготовлен для следующих этапов: ручной выбор команды и "
@@ -336,10 +342,11 @@ def install_composition_ui(window: Any) -> None:
         ("Полуавтоматический режим", "Задать количество и условия, получить предложение и скорректировать его перед подтверждением."),
     ):
         card = QFrame()
-        card.setObjectName("todaySection")
+        card.setObjectName("metricCard")
         card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 14, 16, 14)
         heading = QLabel(caption)
-        heading.setObjectName("todaySectionTitle")
+        heading.setStyleSheet("font-weight: 600;")
         text = QLabel(description)
         text.setWordWrap(True)
         text.setObjectName("secondaryText")
@@ -361,7 +368,7 @@ def install_composition_ui(window: Any) -> None:
     root.addWidget(tabs, 1)
 
     # Entering Composition from the sidebar always means the ordinary
-    # Directory.  Contextual quick action from Today goes straight to Team.
+    # Directory. Contextual quick action from Today goes straight to Team.
     composition_button = window.nav_group.button(0)
     if composition_button is not None:
         composition_button.clicked.connect(lambda _checked=False: tabs.setCurrentIndex(0))
