@@ -25,6 +25,7 @@ def main() -> int:
     from backup_local import install_backup_features
     from composition_ui import install_composition_ui
     from csv_data import install_csv_features
+    from employee_profile_ui import install_employee_profile_ui
     from navigation_context import install_context_navigation
     from service_page_scroll import install_service_page_scroll
     from temporal_snapshot import install_temporal_snapshot_features
@@ -50,6 +51,9 @@ def main() -> int:
     # Composition reuses the existing SHDS widgets, so it is installed after
     # the v0.8.3 workflow shell but before context-aware Back navigation.
     install_composition_ui(window)
+    # The profile layer patches the existing EmployeeDialog in-place so every
+    # current entry point opens the same redesigned employee profile.
+    install_employee_profile_ui(window)
     # Context navigation is installed last: it distinguishes a sidebar jump
     # from entering the same root screen through a nested working scenario.
     install_context_navigation(window)
