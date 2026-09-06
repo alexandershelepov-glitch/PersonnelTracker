@@ -27,6 +27,7 @@ def main() -> int:
     from composition_ui import install_composition_ui
     from csv_data import install_csv_features
     from employee_profile_ui import install_employee_profile_ui
+    from manual_team_ui import install_manual_team_ui
     from navigation_context import install_context_navigation
     from planning_ui import install_planning_ui
     from service_page_scroll import install_service_page_scroll
@@ -58,6 +59,9 @@ def main() -> int:
     # Composition reuses the existing SHDS widgets, so it is installed after
     # the v0.8.3 workflow shell but before context-aware Back navigation.
     install_composition_ui(window)
+    # Manual team formation fills the Composition placeholder while reusing
+    # Today-state semantics and the existing transactional batch editor.
+    install_manual_team_ui(window)
     # The profile layer patches the existing EmployeeDialog in-place so every
     # current entry point opens the same redesigned employee profile.
     install_employee_profile_ui(window)
