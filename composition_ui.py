@@ -12,6 +12,7 @@ from typing import Any
 
 def install_composition_ui(window: Any) -> None:
     from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeySequence
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
@@ -82,7 +83,8 @@ def install_composition_ui(window: Any) -> None:
 
     intro = QLabel(
         "Быстрый справочник работников: найдите людей, отфильтруйте состав, "
-        "выделите нужных и скопируйте сведения в один клик."
+        "выделяйте отдельные ячейки или целые колонки и копируйте их через Cmd/Ctrl+C. "
+        "Для готовых наборов полей используйте кнопку «Копировать»."
     )
     intro.setObjectName("secondaryText")
     intro.setWordWrap(True)
@@ -138,22 +140,59 @@ def install_composition_ui(window: Any) -> None:
     actions.addWidget(open_button)
     directory_root.addLayout(actions)
 
-    table = QTableWidget(0, 7)
+    class DirectoryTable(QTableWidget):
+        """Read-only spreadsheet-like selection with native clipboard copy."""
+
+        def copy_selected_cells(self) -> str:
+            indexes = [index for index in self.selectedIndexes() if not self.isColumnHidden(index.column())]
+            if not indexes:
+                return ""
+            rows = sorted({index.row() for index in indexes})
+            columns = sorted({index.column() for index in indexes})
+            selected = {(index.row(), index.column()) for index in indexes}
+            lines: list[str] = []
+            for row in rows:
+                cells: list[str] = []
+                for column in columns:
+                    if (row, column) not in selected:
+                        cells.append("")
+                        continue
+                    item = self.item(row, column)
+                    cells.append(item.text() if item is not None else "")
+                lines.append("\t".join(cells))
+            text = "\n".join(lines)
+            QApplication.clipboard().setText(text)
+            return text
+
+        def keyPressEvent(self, event):
+            if event.matches(QKeySequence.Copy):
+                self.copy_selected_cells()
+                event.accept()
+                return
+            super().keyPressEvent(event)
+
+    table = DirectoryTable(0, 7)
     table.setObjectName("compositionDirectory")
     table.setHorizontalHeaderLabels([
         "ФИО", "Должность", "Таб. №", "Телефон", "Подразделение", "График", "ID",
     ])
     table.setColumnHidden(6, True)
     table.setEditTriggers(QTableWidget.NoEditTriggers)
-    table.setSelectionBehavior(QTableWidget.SelectRows)
+    # Directory is a data table first: individual cells and rectangular ranges
+    # may be selected. Buttons still interpret any selected cells as people by
+    # their row, so team-oriented actions remain available without forcing a
+    # whole-row visual selection.
+    table.setSelectionBehavior(QTableWidget.SelectItems)
     table.setSelectionMode(QTableWidget.ExtendedSelection)
     table.setAlternatingRowColors(True)
     table.verticalHeader().hide()
     header = table.horizontalHeader()
     header.setStretchLastSection(False)
+    header.setSectionsClickable(True)
     header.setSectionResizeMode(QHeaderView.ResizeToContents)
     header.setSectionResizeMode(0, QHeaderView.Stretch)
     header.setSectionResizeMode(1, QHeaderView.Stretch)
+    header.sectionClicked.connect(lambda column: table.selectColumn(column) if not table.isColumnHidden(column) else None)
     directory_root.addWidget(table, 1)
 
     # Expose widgets for lightweight UI tests and future team-builder reuse.
@@ -252,7 +291,7 @@ def install_composition_ui(window: Any) -> None:
 
     def update_selected_count() -> None:
         count = len(selected_ids())
-        selected_label.setText(f"Выбрано: {count}")
+        selected_label.setText(f"Выбрано работников: {count}")
         copy_mode.setEnabled(count > 0)
         copy_button.setEnabled(count > 0)
         open_button.setEnabled(count > 0)
