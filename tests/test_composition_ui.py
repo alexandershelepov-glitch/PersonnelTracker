@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QTableWidget
 
 from assignment_history_compat import install_assignment_history_features
 from backup_local import install_backup_features
@@ -94,6 +94,23 @@ class CompositionUiTests(unittest.TestCase):
         copied = QApplication.clipboard().text()
         self.assertIn(expected_fio, copied)
         self.assertIn("таб. №", copied)
+
+    def test_directory_supports_cell_and_column_copy(self):
+        table = self.window.composition_directory_table
+        self.assertEqual(table.selectionBehavior(), QTableWidget.SelectItems)
+
+        table.clearSelection()
+        table.setCurrentCell(0, 2)
+        table.item(0, 2).setSelected(True)
+        expected_cell = table.item(0, 2).text()
+        self.assertEqual(table.copy_selected_cells(), expected_cell)
+        self.assertEqual(QApplication.clipboard().text(), expected_cell)
+
+        table.clearSelection()
+        table.selectColumn(0)
+        expected_column = "\n".join(table.item(row, 0).text() for row in range(table.rowCount()))
+        self.assertEqual(table.copy_selected_cells(), expected_column)
+        self.assertEqual(QApplication.clipboard().text(), expected_column)
 
     def test_existing_shds_widgets_are_reused_inside_shds_tab(self):
         shds = self.window.composition_tabs.widget(2)
