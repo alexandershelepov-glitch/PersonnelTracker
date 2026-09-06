@@ -27,7 +27,7 @@ TRAINING_TYPES = {
 
 
 def install_planning_ui(window: Any) -> None:
-    from PySide6.QtCore import QDate, Qt
+    from PySide6.QtCore import QDate, QLocale, Qt
     from PySide6.QtGui import QBrush
     from PySide6.QtWidgets import (
         QAbstractItemView,
@@ -185,10 +185,25 @@ def install_planning_ui(window: Any) -> None:
     window.planning_section = section
     window.planning_event_type = event_type
     window.planning_search = list_search
+    window.planning_month_label = month_label
 
     selected_month = {"date": QDate.currentDate().addDays(1 - QDate.currentDate().day())}
     event_cells: dict[tuple[int, int], int] = {}
     row_employee_ids: list[int] = []
+    ru_locale = QLocale("ru_RU")
+
+    def display_date(value: str) -> str:
+        parsed = QDate.fromString(str(value or ""), "yyyy-MM-dd")
+        return parsed.toString("dd.MM.yyyy") if parsed.isValid() else str(value or "")
+
+    def month_title(value: QDate) -> str:
+        month = ru_locale.monthName(value.month(), QLocale.LongFormat)
+        if month:
+            month = month[0].upper() + month[1:]
+        return f"{month} {value.year()}"
+
+    def weekday_short(value: QDate) -> str:
+        return ru_locale.dayName(value.dayOfWeek(), QLocale.ShortFormat).replace(".", "")
 
     def fill_combo(combo: QComboBox, values: list[str]) -> None:
         current = combo.currentText()
@@ -285,12 +300,12 @@ def install_planning_ui(window: Any) -> None:
 
     def refresh_graph() -> None:
         qmonth = selected_month["date"]
-        month_label.setText(qmonth.toString("MMMM yyyy"))
+        month_label.setText(month_title(qmonth))
         _, _, count = month_bounds()
         labels = []
         for day_no in range(1, count + 1):
             qday = QDate(qmonth.year(), qmonth.month(), day_no)
-            labels.append(f"{day_no}\n{qday.toString('ddd')}")
+            labels.append(f"{day_no}\n{weekday_short(qday)}")
         days.clearSpans()
         days.setColumnCount(count)
         days.setHorizontalHeaderLabels(labels)
@@ -346,7 +361,7 @@ def install_planning_ui(window: Any) -> None:
             item = QTableWidgetItem(label)
             item.setData(Qt.UserRole, int(event["id"]))
             item.setBackground(event_brush(str(event["event_type"])))
-            period = f"{event['start_date']} — {event['end_date']}"
+            period = f"{display_date(event['start_date'])} — {display_date(event['end_date'])}"
             location = f"\n{event['location']}" if event["location"] else ""
             item.setToolTip(f"{label}\n{period}{location}")
             days.setItem(row, start_col, item)
@@ -371,8 +386,9 @@ def install_planning_ui(window: Any) -> None:
         for row, event in enumerate(rows):
             values = [
                 event["fio"], event["event_type"], event["subtype"] or "—",
-                event["start_date"], event["end_date"], event["location"] or "—",
-                event["basis"] or "—", event["notes"] or "—", int(event["id"]),
+                display_date(event["start_date"]), display_date(event["end_date"]),
+                event["location"] or "—", event["basis"] or "—", event["notes"] or "—",
+                int(event["id"]),
             ]
             brush = event_brush(str(event["event_type"]))
             for column, value in enumerate(values):
