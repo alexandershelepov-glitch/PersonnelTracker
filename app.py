@@ -32,6 +32,7 @@ def main() -> int:
     from navigation_context import install_context_navigation
     from planning_ui import install_planning_ui
     from planning_usability import install_planning_usability
+    from reports_ui import install_reports_ui
     from semi_auto_team_ui import install_semi_auto_team_ui
     from service_page_scroll import install_service_page_scroll
     from tab_theme_fix import install_tab_theme_fix
@@ -57,6 +58,7 @@ def main() -> int:
     install_csv_features(window)
     install_assignment_history_features(window)
     install_temporal_snapshot_features(window)
+    install_reports_ui(window)
     # The Service page must become scrollable before v0.8.3 hides the working
     # history/snapshot groups and moves their entry points into the daily hub.
     install_service_page_scroll(window)
