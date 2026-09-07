@@ -31,6 +31,7 @@ def main() -> int:
     from navigation_context import install_context_navigation
     from planning_ui import install_planning_ui
     from planning_usability import install_planning_usability
+    from semi_auto_team_ui import install_semi_auto_team_ui
     from service_page_scroll import install_service_page_scroll
     from temporal_snapshot import install_temporal_snapshot_features
     from theme import ThemeManager
@@ -63,6 +64,9 @@ def main() -> int:
     # Manual team formation fills the Composition placeholder while reusing
     # Today-state semantics and the existing transactional batch editor.
     install_manual_team_ui(window)
+    # Semi-auto mode ranks candidates but never persists a proposal. Final
+    # creation still goes through the same BatchEventDialog/service rules.
+    install_semi_auto_team_ui(window)
     # The profile layer patches the existing EmployeeDialog in-place so every
     # current entry point opens the same redesigned employee profile.
     install_employee_profile_ui(window)
