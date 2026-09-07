@@ -27,6 +27,7 @@ def main() -> int:
     from composition_ui import install_composition_ui
     from csv_data import install_csv_features
     from employee_profile_ui import install_employee_profile_ui
+    from interface_polish import install_interface_polish
     from manual_team_ui import install_manual_team_ui
     from navigation_context import install_context_navigation
     from planning_ui import install_planning_ui
@@ -75,9 +76,10 @@ def main() -> int:
     # Keep split planner rows visually locked and allow quick event creation by
     # clicking an employee name without changing event persistence semantics.
     install_planning_usability(window)
-    # Context navigation is installed last: it distinguishes a sidebar jump
-    # from entering the same root screen through a nested working scenario.
+    # Context navigation distinguishes sidebar roots from nested working paths.
     install_context_navigation(window)
+    # Final UI pass comes last so it sees every page/widget installed above.
+    install_interface_polish(window)
     window.show()
     return app.exec()
 
