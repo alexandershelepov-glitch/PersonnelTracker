@@ -4,12 +4,14 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from database import Database
 from reports import (
     EMPTY_VALUE,
     UNASSIGNED_UNIT,
     PersonnelRosterReport,
+    ReportExportError,
     format_report_date,
     render_csv,
     render_tsv,
@@ -167,6 +169,13 @@ class ReportExportTests(unittest.TestCase):
     def test_report_date_helper_uses_user_format(self):
         self.assertEqual(format_report_date("2026-09-07"), "07.09.2026")
         self.assertEqual(format_report_date(""), "")
+
+    def test_write_csv_wraps_directory_creation_errors(self):
+        headers = roster_headers()
+        rows = [("Иванов", "101", "12", "ТУ 2", "1 отделение", "1 группа", "инспектор", "1/3")]
+        with patch.object(Path, "mkdir", side_effect=OSError("denied")):
+            with self.assertRaises(ReportExportError):
+                write_csv(self.root / "blocked" / "roster.csv", headers, rows)
 
 
 if __name__ == "__main__":

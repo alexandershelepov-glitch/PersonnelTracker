@@ -102,8 +102,8 @@ def write_csv(destination: str | Path, headers: Sequence[str], rows: Sequence[Se
     target = Path(destination).expanduser().resolve()
     if target.suffix.lower() != ".csv":
         target = target.with_suffix(".csv")
-    target.parent.mkdir(parents=True, exist_ok=True)
     try:
+        target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("w", encoding="utf-8-sig", newline="") as stream:
             stream.write(render_csv(headers, rows))
     except OSError as exc:
