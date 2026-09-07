@@ -74,6 +74,7 @@ def install_backup_features(window: Any) -> None:
     """Install v0.7 local backup controls on the Service page."""
     from PySide6.QtWidgets import (
         QFileDialog,
+        QGridLayout,
         QGroupBox,
         QHBoxLayout,
         QLabel,
@@ -223,7 +224,7 @@ def install_backup_features(window: Any) -> None:
     description.setWordWrap(True)
     box_layout.addWidget(description)
 
-    buttons = QHBoxLayout()
+    buttons = QGridLayout()
     create_button = QPushButton("Создать резервную копию")
     create_button.setProperty("role", "primary")
     create_button.clicked.connect(create_manual_backup)
@@ -231,10 +232,10 @@ def install_backup_features(window: Any) -> None:
     restore_button.clicked.connect(restore_backup)
     folder_button = QPushButton("Выбрать папку резервных копий")
     folder_button.clicked.connect(choose_backup_folder)
-    buttons.addWidget(create_button)
-    buttons.addWidget(restore_button)
-    buttons.addWidget(folder_button)
-    buttons.addStretch()
+    buttons.addWidget(create_button, 0, 0)
+    buttons.addWidget(restore_button, 0, 1)
+    buttons.addWidget(folder_button, 1, 0, 1, 2)
+    buttons.setColumnStretch(1, 1)
     box_layout.addLayout(buttons)
 
     status = QLabel()
