@@ -39,6 +39,7 @@ def main() -> int:
     from theme import ThemeManager
     from ui import MainWindow
     from workflow_ui import install_workflow_ui
+    from workspace_resize_ui import install_workspace_resize_ui
 
     db_path = database_path()
     print(f"Используется база данных: {db_path}")
@@ -84,6 +85,9 @@ def main() -> int:
     # macOS document-mode tabs can ignore parts of the dark Qt palette; force
     # the final tab strip to use the application's own theme colours.
     install_tab_theme_fix(window)
+    # User-resizable table columns and summary splitters are applied after all
+    # other UI layers so their geometry is not overwritten later in startup.
+    install_workspace_resize_ui(window)
     window.show()
     return app.exec()
 
