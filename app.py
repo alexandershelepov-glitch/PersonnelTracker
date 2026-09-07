@@ -26,6 +26,7 @@ def main() -> int:
     from backup_local import install_backup_features
     from composition_ui import install_composition_ui
     from csv_data import install_csv_features
+    from date_state_report_ui import install_date_state_report_ui
     from employee_profile_ui import install_employee_profile_ui
     from interface_polish import install_interface_polish
     from manual_team_ui import install_manual_team_ui
@@ -61,6 +62,7 @@ def main() -> int:
     install_temporal_snapshot_features(window)
     install_reports_ui(window)
     install_staffing_report_ui(window)
+    install_date_state_report_ui(window)
     # The Service page must become scrollable before v0.8.3 hides the working
     # history/snapshot groups and moves their entry points into the daily hub.
     install_service_page_scroll(window)
