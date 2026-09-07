@@ -25,6 +25,14 @@ class WorkspaceResizeUiTests(unittest.TestCase):
         self.settings_patch.start()
         self.window = MainWindow(Path(self.tmp.name) / "personnel.db")
         install_planning_ui(self.window)
+        summary_root = self.window.summary_table.parentWidget().layout()
+        self.summary_root = summary_root
+        self.old_summary_bottom_layout = next(
+            summary_root.itemAt(index).layout()
+            for index in range(summary_root.count())
+            if summary_root.itemAt(index).layout() is not None
+            and summary_root.itemAt(index).layout().indexOf(self.window.summary_tree) >= 0
+        )
         install_workspace_resize_ui(self.window)
         self.window.show()
         self.app.processEvents()
@@ -56,6 +64,27 @@ class WorkspaceResizeUiTests(unittest.TestCase):
         self.app.processEvents()
         self.assertIsNotNone(self.window.settings.value("summary/vertical_splitter_state"))
         self.assertIsNotNone(self.window.settings.value("summary/horizontal_splitter_state"))
+
+    def test_summary_layout_is_replaced_once_with_nested_splitters(self):
+        root = self.summary_root
+        vertical = self.window.summary_vertical_splitter
+        horizontal = self.window.summary_horizontal_splitter
+
+        self.assertEqual(root.indexOf(self.old_summary_bottom_layout), -1)
+        self.assertGreaterEqual(root.indexOf(vertical), 0)
+        self.assertGreaterEqual(vertical.indexOf(horizontal), 0)
+        self.assertGreaterEqual(horizontal.indexOf(self.window.summary_tree), 0)
+        self.assertGreaterEqual(horizontal.indexOf(self.window.summary_people), 0)
+
+        top_panel = vertical.widget(0)
+        self.assertGreaterEqual(top_panel.layout().indexOf(self.window.summary_table), 0)
+        self.assertGreaterEqual(top_panel.layout().indexOf(self.window.diagnostic_label), 0)
+
+        root_count = root.count()
+        install_workspace_resize_ui(self.window)
+        self.assertIs(self.window.summary_vertical_splitter, vertical)
+        self.assertIs(self.window.summary_horizontal_splitter, horizontal)
+        self.assertEqual(root.count(), root_count)
 
 
 if __name__ == "__main__":

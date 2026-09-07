@@ -63,13 +63,11 @@ def install_workspace_resize_ui(window: Any) -> None:
             # Locate the old bottom QHBoxLayout containing the tree and people
             # table, then detach those widgets before replacing the layout.
             bottom_layout = None
-            bottom_index = -1
             for index in range(root.count()):
                 item = root.itemAt(index)
                 layout = item.layout()
                 if layout is not None and layout.indexOf(summary_tree) >= 0:
                     bottom_layout = layout
-                    bottom_index = index
                     break
 
             if table_index >= 0 and bottom_layout is not None:
@@ -78,7 +76,10 @@ def install_workspace_resize_ui(window: Any) -> None:
                     root.removeWidget(diagnostic)
                 bottom_layout.removeWidget(summary_tree)
                 bottom_layout.removeWidget(summary_people)
-                root.takeAt(bottom_index)
+                for index in range(root.count()):
+                    if root.itemAt(index).layout() is bottom_layout:
+                        root.takeAt(index)
+                        break
                 bottom_layout.deleteLater()
 
                 top_panel = QWidget(summary_tab)
