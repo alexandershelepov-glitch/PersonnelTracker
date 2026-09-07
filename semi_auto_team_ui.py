@@ -57,7 +57,11 @@ def install_semi_auto_team_ui(window: Any) -> None:
     team_date = QDateEdit()
     team_date.setCalendarPopup(True)
     team_date.setDisplayFormat("dd.MM.yyyy")
-    team_date.setDate(getattr(window, "manual_team_date", None).date() if hasattr(window, "manual_team_date") else QDate.currentDate())
+    team_date.setDate(
+        getattr(window, "manual_team_date", None).date()
+        if hasattr(window, "manual_team_date")
+        else QDate.currentDate()
+    )
     desired = QSpinBox()
     desired.setRange(2, 200)
     desired.setValue(2)
@@ -201,7 +205,11 @@ def install_semi_auto_team_ui(window: Any) -> None:
             last = "—"
             if candidate.last_participation:
                 parsed = QDate.fromString(candidate.last_participation, "yyyy-MM-dd")
-                last = parsed.toString("dd.MM.yyyy") if parsed.isValid() else candidate.last_participation
+                last = (
+                    parsed.toString("dd.MM.yyyy")
+                    if parsed.isValid()
+                    else candidate.last_participation
+                )
             values = [
                 candidate.fio,
                 candidate.position or "—",
@@ -242,8 +250,11 @@ def install_semi_auto_team_ui(window: Any) -> None:
         except ValueError as exc:
             QMessageBox.warning(semi, "Подбор команды", str(exc))
             candidate_cache = []
+        eligible_ids = {candidate.employee_id for candidate in candidate_cache}
+        selected.intersection_update(eligible_ids)
         rebuild_table()
-        status.setText(f"Подходящих кандидатов: {len(candidate_cache)}")
+        if not selected:
+            status.setText(f"Подходящих кандидатов: {len(candidate_cache)}")
 
     def update_actions() -> None:
         count = len(selected)
@@ -252,7 +263,9 @@ def install_semi_auto_team_ui(window: Any) -> None:
         clear_button.setEnabled(count > 0)
         replace_button.setEnabled(count > 0 and len(candidate_cache) > count)
         if count:
-            status.setText(f"Выбрано: {count} из {desired.value()} • кандидатов: {len(candidate_cache)}")
+            status.setText(
+                f"Выбрано: {count} из {desired.value()} • кандидатов: {len(candidate_cache)}"
+            )
 
     def propose() -> None:
         selected.clear()
@@ -264,7 +277,9 @@ def install_semi_auto_team_ui(window: Any) -> None:
                 "Измените условия или скорректируйте состав вручную."
             )
         else:
-            status.setText(f"Предложено: {len(selected)}. Состав можно изменить вручную.")
+            status.setText(
+                f"Предложено: {len(selected)}. Состав можно изменить вручную."
+            )
 
     def item_changed(item: QTableWidgetItem) -> None:
         if item.column() != 0:
@@ -281,16 +296,27 @@ def install_semi_auto_team_ui(window: Any) -> None:
     def replace_current() -> None:
         row = table.currentRow()
         if row < 0:
-            QMessageBox.information(semi, "Замена", "Выберите строку работника, которого нужно заменить.")
+            QMessageBox.information(
+                semi, "Замена", "Выберите строку работника, которого нужно заменить."
+            )
             return
         current = table.item(row, 9)
         if current is None:
             return
         employee_id = int(current.text())
         if employee_id not in selected:
-            QMessageBox.information(semi, "Замена", "Сначала отметьте этого работника в составе.")
+            QMessageBox.information(
+                semi, "Замена", "Сначала отметьте этого работника в составе."
+            )
             return
-        replacement = next((item.employee_id for item in candidate_cache if item.employee_id not in selected), None)
+        replacement = next(
+            (
+                item.employee_id
+                for item in candidate_cache
+                if item.employee_id not in selected
+            ),
+            None,
+        )
         if replacement is None:
             QMessageBox.information(semi, "Замена", "Других подходящих кандидатов нет.")
             return
@@ -306,11 +332,15 @@ def install_semi_auto_team_ui(window: Any) -> None:
     def copy_selection() -> None:
         by_id = {item.employee_id: item for item in candidate_cache}
         lines = []
-        for employee_id in sorted(selected, key=lambda value: by_id[value].fio.casefold() if value in by_id else ""):
+        for employee_id in sorted(
+            selected,
+            key=lambda value: by_id[value].fio.casefold() if value in by_id else "",
+        ):
             candidate = by_id.get(employee_id)
             if candidate:
                 lines.append(
-                    f"{candidate.fio} — {candidate.position or '—'} — таб. № {candidate.personnel_no or '—'}"
+                    f"{candidate.fio} — {candidate.position or '—'} — "
+                    f"таб. № {candidate.personnel_no or '—'}"
                 )
         QApplication.clipboard().setText("\n".join(lines))
 
@@ -319,6 +349,7 @@ def install_semi_auto_team_ui(window: Any) -> None:
         if len(ids) < 2:
             return
         from ui import BatchEventDialog
+
         dialog = BatchEventDialog(window.service, window, preselected=ids)
         chosen = team_date.date()
         dialog.start.setDate(chosen)
@@ -339,15 +370,19 @@ def install_semi_auto_team_ui(window: Any) -> None:
     clear_button.clicked.connect(clear_selection)
     create_button.clicked.connect(create_event)
 
-    for control in (team_date, desired, lookback):
-        if isinstance(control, QDateEdit):
-            control.dateChanged.connect(lambda _value: refresh_pool(clear_selection=True))
-        else:
-            control.valueChanged.connect(lambda _value: refresh_pool(clear_selection=True))
+    team_date.dateChanged.connect(lambda _value: refresh_pool(clear_selection=True))
+    lookback.valueChanged.connect(lambda _value: refresh_pool(clear_selection=True))
+    # Desired size changes the requested proposal size, not candidate validity;
+    # keep any manual corrections until the user explicitly proposes again.
+    desired.valueChanged.connect(lambda _value: update_actions())
     for combo in (department, section, group, position, schedule):
-        combo.currentTextChanged.connect(lambda _text: refresh_pool(clear_selection=True))
+        combo.currentTextChanged.connect(
+            lambda _text: refresh_pool(clear_selection=True)
+        )
     for checkbox in (include_off, include_check, require_weapon):
-        checkbox.toggled.connect(lambda _checked: refresh_pool(clear_selection=True))
+        checkbox.toggled.connect(
+            lambda _checked: refresh_pool(clear_selection=True)
+        )
 
     def mode_changed(index: int) -> None:
         if index != 1:
@@ -360,11 +395,13 @@ def install_semi_auto_team_ui(window: Any) -> None:
     mode_tabs.currentChanged.connect(mode_changed)
 
     original_refresh_all = window.refresh_all
+
     def refresh_all() -> None:
         original_refresh_all()
         refresh_filter_values()
         if mode_tabs.currentIndex() == 1:
             refresh_pool(clear_selection=False)
+
     window.refresh_all = refresh_all
 
     refresh_filter_values()
