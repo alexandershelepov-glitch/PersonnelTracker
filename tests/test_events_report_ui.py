@@ -9,7 +9,11 @@ from PySide6.QtCore import QDate, QSettings
 from PySide6.QtWidgets import QApplication, QGroupBox, QMessageBox, QPushButton
 
 from events_report import EventsReport, events_headers
-from events_report_ui import install_events_report_ui
+from events_report_ui import (
+    EMPTY_PERIOD_MESSAGE,
+    INVALID_PERIOD_MESSAGE,
+    install_events_report_ui,
+)
 from reports import render_tsv
 from reports_ui import install_reports_ui
 from ui import MainWindow
@@ -198,6 +202,102 @@ class EventsReportUiTests(unittest.TestCase):
             view.refresh()
         warn.assert_called_once()
         self.app.processEvents()
+        view.deleteLater()
+        self.app.processEvents()
+
+    def test_invalid_refresh_clears_rows_and_disables_actions(self):
+        self._fill_sample()
+        view = self.window.events_report_view_type()
+        view.show()
+        self.app.processEvents()
+        self._show_month(view, EVENT_YEAR, EVENT_MONTH)
+        self.assertEqual(view.table.rowCount(), 3)
+        self.assertTrue(view.copy_button.isEnabled())
+        self.assertTrue(view.export_button.isEnabled())
+
+        view.start.setDate(QDate(EVENT_YEAR, 9, 30))
+        view.end.setDate(QDate(EVENT_YEAR, 9, 1))
+        with patch.object(QMessageBox, "warning") as warn:
+            view.refresh()
+        warn.assert_called_once()
+        self.assertEqual(view.table.rowCount(), 0)
+        self.assertFalse(view.table.isVisible())
+        self.assertFalse(view.copy_button.isEnabled())
+        self.assertFalse(view.export_button.isEnabled())
+        self.assertTrue(view.empty_state.isVisible())
+        self.assertEqual(view.empty_state.text(), INVALID_PERIOD_MESSAGE)
+        view.deleteLater()
+        self.app.processEvents()
+
+    def test_invalid_copy_keeps_clipboard_unchanged(self):
+        view = self.window.events_report_view_type()
+        view.start.setDate(QDate(EVENT_YEAR, 9, 30))
+        view.end.setDate(QDate(EVENT_YEAR, 9, 1))
+        QApplication.clipboard().setText("SENTINEL")
+        with patch.object(QMessageBox, "warning") as warn:
+            view.copy_report()
+        warn.assert_called_once()
+        self.assertEqual(QApplication.clipboard().text(), "SENTINEL")
+        view.deleteLater()
+        self.app.processEvents()
+
+    def test_invalid_export_returns_none_and_creates_no_file(self):
+        view = self.window.events_report_view_type()
+        view.start.setDate(QDate(EVENT_YEAR, 9, 30))
+        view.end.setDate(QDate(EVENT_YEAR, 9, 1))
+        destination = Path(self.tmp.name) / "never.csv"
+        with patch.object(QMessageBox, "warning") as warn:
+            result = view.export_csv(destination=destination)
+        warn.assert_called_once()
+        self.assertIsNone(result)
+        self.assertFalse(destination.exists())
+        view.deleteLater()
+        self.app.processEvents()
+
+    def test_valid_refresh_recovers_after_invalid_period(self):
+        self._fill_sample()
+        view = self.window.events_report_view_type()
+        view.show()
+        self.app.processEvents()
+        self._show_month(view, EVENT_YEAR, EVENT_MONTH)
+        self.assertEqual(view.table.rowCount(), 3)
+
+        view.start.setDate(QDate(EVENT_YEAR, 9, 30))
+        view.end.setDate(QDate(EVENT_YEAR, 9, 1))
+        with patch.object(QMessageBox, "warning"):
+            view.refresh()
+        self.assertEqual(view.table.rowCount(), 0)
+        self.assertFalse(view.copy_button.isEnabled())
+        self.assertEqual(view.empty_state.text(), INVALID_PERIOD_MESSAGE)
+
+        self._show_month(view, EVENT_YEAR, EVENT_MONTH)
+        self.assertEqual(view.table.rowCount(), 3)
+        self.assertTrue(view.copy_button.isEnabled())
+        self.assertTrue(view.export_button.isEnabled())
+        self.assertEqual(view.empty_state.text(), EMPTY_PERIOD_MESSAGE)
+        self.assertFalse(view.empty_state.isVisible())
+        view.deleteLater()
+        self.app.processEvents()
+
+    def test_empty_valid_period_recovers_to_empty_message(self):
+        view = self.window.events_report_view_type()
+        view.show()
+        self.app.processEvents()
+        # No events: valid empty period shows the empty message.
+        self._show_month(view, 2026, 1)
+        self.assertEqual(view.table.rowCount(), 0)
+        self.assertEqual(view.empty_state.text(), EMPTY_PERIOD_MESSAGE)
+        self.assertTrue(view.empty_state.isVisible())
+
+        view.start.setDate(QDate(2026, 1, 20))
+        view.end.setDate(QDate(2026, 1, 1))
+        with patch.object(QMessageBox, "warning"):
+            view.refresh()
+        self.assertEqual(view.empty_state.text(), INVALID_PERIOD_MESSAGE)
+
+        self._show_month(view, 2026, 1)
+        self.assertEqual(view.table.rowCount(), 0)
+        self.assertEqual(view.empty_state.text(), EMPTY_PERIOD_MESSAGE)
         view.deleteLater()
         self.app.processEvents()
 

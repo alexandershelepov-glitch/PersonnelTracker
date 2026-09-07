@@ -17,6 +17,10 @@ def default_events_csv_name(year: int, month: int) -> str:
     return f"События_и_привлечение_{year:04d}-{month:02d}.csv"
 
 
+EMPTY_PERIOD_MESSAGE = "За выбранный период нет событий"
+INVALID_PERIOD_MESSAGE = "Указан некорректный период: дата «С» позже даты «По»."
+
+
 def install_events_report_ui(window: Any) -> None:
     from PySide6.QtCore import QDate, Qt
     from PySide6.QtWidgets import (
@@ -108,7 +112,7 @@ def install_events_report_ui(window: Any) -> None:
             header.setStretchLastSection(False)
             root.addWidget(self.table, 1)
 
-            self.empty_state = QLabel("За выбранный период нет событий")
+            self.empty_state = QLabel(EMPTY_PERIOD_MESSAGE)
             self.empty_state.setObjectName("secondaryText")
             self.empty_state.setAlignment(Qt.AlignCenter)
             self.empty_state.hide()
@@ -128,16 +132,28 @@ def install_events_report_ui(window: Any) -> None:
                 self.end.date().toString("yyyy-MM-dd"),
             )
 
-        def _table_data(self):
-            start_date, end_date = self._period()
-            return EventsReport(window.service).table(start_date, end_date)
+        def _load_report(self):
+            """Return the report for the current period, or None on an invalid one.
 
-        def refresh(self) -> None:
+            Any ValueError (a reversed period) is caught here so callers never
+            leak an exception; a warning is shown exactly once per attempt.
+            """
             try:
-                report = self._table_data()
-            except ValueError as exc:
-                QMessageBox.warning(self, "События и привлечение", str(exc))
-                return
+                return EventsReport(window.service).table(*self._period())
+            except ValueError:
+                QMessageBox.warning(self, "События и привлечение", INVALID_PERIOD_MESSAGE)
+                return None
+
+        def _show_invalid_period(self) -> None:
+            """Clear the table and present an explicit invalid-period state."""
+            self.table.setRowCount(0)
+            self.table.setVisible(False)
+            self.empty_state.setText(INVALID_PERIOD_MESSAGE)
+            self.empty_state.setVisible(True)
+            self.copy_button.setEnabled(False)
+            self.export_button.setEnabled(False)
+
+        def _populate(self, report) -> None:
             self.table.setRowCount(len(report.rows))
             for row_index, values in enumerate(report.rows):
                 for column, value in enumerate(values):
@@ -145,6 +161,7 @@ def install_events_report_ui(window: Any) -> None:
                     item.setToolTip(value)
                     self.table.setItem(row_index, column, item)
             has_rows = bool(report.rows)
+            self.empty_state.setText(EMPTY_PERIOD_MESSAGE)
             self.table.setVisible(has_rows)
             self.empty_state.setVisible(not has_rows)
             self.copy_button.setEnabled(has_rows)
@@ -153,13 +170,24 @@ def install_events_report_ui(window: Any) -> None:
                 self.table.resizeColumnsToContents()
                 self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
 
+        def refresh(self) -> None:
+            report = self._load_report()
+            if report is None:
+                self._show_invalid_period()
+                return
+            self._populate(report)
+
         def copy_report(self) -> None:
-            report = self._table_data()
+            report = self._load_report()
+            if report is None:
+                return
             QApplication.clipboard().setText(render_tsv(report.headers, report.rows))
             QMessageBox.information(self, "События и привлечение", "Отчёт скопирован в буфер обмена.")
 
         def export_csv(self, destination: str | Path | None = None) -> Path | None:
-            report = self._table_data()
+            report = self._load_report()
+            if report is None:
+                return None
             target = destination
             if target is None:
                 chosen = self.start.date()
