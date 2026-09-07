@@ -23,6 +23,7 @@ def install_interface_polish(window: Any) -> None:
         QHeaderView,
         QLabel,
         QPushButton,
+        QStyle,
         QStyledItemDelegate,
         QStyleOptionViewItem,
         QTableWidget,
@@ -38,7 +39,7 @@ def install_interface_polish(window: Any) -> None:
         def paint(self, painter, option, index):
             styled = QStyleOptionViewItem(option)
             styled.font.setUnderline(True)
-            if not (styled.state & styled.State_Selected):
+            if not (styled.state & QStyle.State_Selected):
                 styled.palette.setColor(QPalette.Text, window.theme_manager.color("accent"))
             super().paint(painter, styled, index)
 
@@ -46,7 +47,7 @@ def install_interface_polish(window: Any) -> None:
         def paint(self, painter, option, index):
             styled = QStyleOptionViewItem(option)
             value = str(index.data() or "")
-            if not (styled.state & styled.State_Selected):
+            if not (styled.state & QStyle.State_Selected):
                 if value == "Доступен":
                     styled.palette.setColor(QPalette.Text, window.theme_manager.color("success"))
                 elif value == "Требует проверки":
