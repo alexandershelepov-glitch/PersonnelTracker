@@ -34,6 +34,7 @@ def main() -> int:
     from planning_usability import install_planning_usability
     from semi_auto_team_ui import install_semi_auto_team_ui
     from service_page_scroll import install_service_page_scroll
+    from tab_theme_fix import install_tab_theme_fix
     from temporal_snapshot import install_temporal_snapshot_features
     from theme import ThemeManager
     from ui import MainWindow
@@ -80,6 +81,9 @@ def main() -> int:
     install_context_navigation(window)
     # Final UI pass comes last so it sees every page/widget installed above.
     install_interface_polish(window)
+    # macOS document-mode tabs can ignore parts of the dark Qt palette; force
+    # the final tab strip to use the application's own theme colours.
+    install_tab_theme_fix(window)
     window.show()
     return app.exec()
 
