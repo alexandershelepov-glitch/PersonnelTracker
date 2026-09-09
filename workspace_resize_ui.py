@@ -1,6 +1,7 @@
 """Resizable workspace polish for PersonnelTracker v0.8.3.
 
 Presentation only:
+- Directory keeps filters compact and gives remaining height to its data/empty area.
 - Planning employee columns become user-resizable and persist their widths.
 - Summary work areas use nested splitters so the user controls vertical and
   horizontal proportions without changing personnel/business data.
@@ -16,6 +17,23 @@ def install_workspace_resize_ui(window: Any) -> None:
 
     if getattr(window, "_workspace_resize_ui_installed", False):
         return
+
+    # ------------------------------------------------------------------
+    # Directory: the table used to be the only stretchable item. When an
+    # empty database hid that table, Qt distributed spare height among labels
+    # and controls, producing large gaps and a vertically stretched intro.
+    # Give the same workspace stretch to the empty-state label so whichever
+    # content widget is visible consumes the remaining height below filters.
+    # ------------------------------------------------------------------
+    directory = getattr(window, "composition_directory", None)
+    directory_table = getattr(window, "composition_directory_table", None)
+    directory_empty = getattr(window, "composition_empty_state", None)
+    if directory is not None and directory.layout() is not None:
+        directory_layout = directory.layout()
+        if directory_table is not None:
+            directory_layout.setStretchFactor(directory_table, 1)
+        if directory_empty is not None:
+            directory_layout.setStretchFactor(directory_empty, 1)
 
     # ------------------------------------------------------------------
     # Planning: keep the outer splitter, but let the user control the three
