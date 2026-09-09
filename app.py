@@ -23,6 +23,7 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     from assignment_history_compat import install_assignment_history_features
+    from assignment_history_report_ui import install_assignment_history_report_ui
     from backup_local import install_backup_features
     from composition_ui import install_composition_ui
     from csv_data import install_csv_features
@@ -65,6 +66,7 @@ def main() -> int:
     install_staffing_report_ui(window)
     install_date_state_report_ui(window)
     install_events_report_ui(window)
+    install_assignment_history_report_ui(window)
     # The Service page must become scrollable before v0.8.3 hides the working
     # history/snapshot groups and moves their entry points into the daily hub.
     install_service_page_scroll(window)
