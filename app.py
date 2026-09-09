@@ -21,6 +21,7 @@ def main() -> int:
     from interface_polish import install_interface_polish
     from manual_team_ui import install_manual_team_ui
     from modern_directory_ui import install_modern_directory_ui
+    from modern_elevation_ui import install_modern_elevation_ui
     from navigation_context import install_context_navigation
     from planning_ui import install_planning_ui
     from planning_usability import install_planning_usability
@@ -90,6 +91,9 @@ def main() -> int:
     # Design prototype: presentation-only rearrangement of the Composition
     # directory. It intentionally comes last so it can reuse every final widget.
     install_modern_directory_ui(window)
+    # Subtle elevation is applied after the modern layout so only selected
+    # reference surfaces receive depth; data-heavy areas remain restrained.
+    install_modern_elevation_ui(window)
     window.show()
     return app.exec()
 
