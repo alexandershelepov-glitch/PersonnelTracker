@@ -41,6 +41,8 @@ class EmptyDirectoryLayoutTests(unittest.TestCase):
             install_workspace_resize_ui,
         ):
             install(self.window)
+        self.window._select_page(0, record_history=False)
+        self.window.composition_tabs.setCurrentIndex(0)
         self.window.show()
         self.app.processEvents()
 
