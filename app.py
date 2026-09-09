@@ -1,21 +1,9 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-from config import APP_NAME, DB_FILENAME
-
-
-def data_dir() -> Path:
-    # Рабочая база остаётся локальной рядом с приложением в ./data.
-    # Резервные ZIP-копии могут храниться в отдельной папке, выбранной в UI.
-    base = Path(__file__).resolve().parent
-    return base / "data"
-
-
-def database_path() -> Path:
-    """The single, absolute SQLite location used by the desktop application."""
-    return (data_dir() / DB_FILENAME).resolve()
+from config import APP_NAME
+from runtime_paths import data_dir, database_path
 
 
 def main() -> int:
