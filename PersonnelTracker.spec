@@ -1,7 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_data_files
-
 block_cipher = None
 
 
@@ -9,7 +7,7 @@ a = Analysis(
     ["app.py"],
     pathex=[],
     binaries=[],
-    datas=collect_data_files("PySide6"),
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
