@@ -2,7 +2,7 @@
 
 This module deliberately changes presentation only. It applies shared action
 icons, restrained semantic emphasis and a small amount of elevation to the
-existing workflows without moving business rules out of their current owners.
+existing workflows without moving widgets between their proven layouts.
 """
 from __future__ import annotations
 
@@ -16,11 +16,11 @@ def install_modern_app_ui(window: Any) -> None:
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import (
         QApplication,
+        QComboBox,
         QFrame,
         QGraphicsDropShadowEffect,
         QLabel,
         QPushButton,
-        QVBoxLayout,
     )
 
     if getattr(window, "_modern_app_ui_installed", False):
@@ -86,54 +86,24 @@ def install_modern_app_ui(window: Any) -> None:
     filter_object = ButtonPolishFilter(window)
     app.installEventFilter(filter_object)
 
-    # Planning has a toolbar and filters as bare layouts. Wrap those two
-    # presentation rows in one surface so it follows the Directory language.
-    planning_card = None
+    # Planning keeps its proven structure; only typography, spacing and filter
+    # controls are marked for the common visual language.
     planning_page = window.pages.widget(2) if getattr(window, "pages", None) is not None else None
     planning_root = planning_page.layout() if planning_page is not None else None
+    if planning_root is not None:
+        planning_root.setSpacing(12)
     month_label = getattr(window, "planning_month_label", None)
-    department = getattr(window, "planning_department", None)
-    if planning_root is not None and month_label is not None and department is not None:
-        toolbar_index = None
-        filters_index = None
-        for index in range(planning_root.count()):
-            item = planning_root.itemAt(index)
-            layout = item.layout()
-            if layout is None:
-                continue
-            widgets = []
-            for child_index in range(layout.count()):
-                child = layout.itemAt(child_index)
-                if child.widget() is not None:
-                    widgets.append(child.widget())
-            if month_label in widgets:
-                toolbar_index = index
-            if department in widgets:
-                filters_index = index
-
-        if toolbar_index is not None and filters_index is not None:
-            first, second = sorted((toolbar_index, filters_index))
-            second_item = planning_root.takeAt(second)
-            first_item = planning_root.takeAt(first)
-            first_layout = first_item.layout()
-            second_layout = second_item.layout()
-            if first_layout is not None and second_layout is not None:
-                planning_card = QFrame(planning_page)
-                planning_card.setObjectName("planningControlCard")
-                card_layout = QVBoxLayout(planning_card)
-                card_layout.setContentsMargins(14, 12, 14, 12)
-                card_layout.setSpacing(10)
-                # Preserve the original visual order, independent of which
-                # layout index happened to be lower after other UI adapters.
-                first_widgets = [
-                    first_layout.itemAt(i).widget() for i in range(first_layout.count())
-                ]
-                toolbar_layout = first_layout if month_label in first_widgets else second_layout
-                filter_layout = second_layout if toolbar_layout is first_layout else first_layout
-                card_layout.addLayout(toolbar_layout)
-                card_layout.addLayout(filter_layout)
-                planning_root.insertWidget(first, planning_card)
-                month_label.setObjectName("planningMonthLabel")
+    if isinstance(month_label, QLabel):
+        month_label.setObjectName("planningMonthLabel")
+    planning_filters = [
+        getattr(window, "planning_department", None),
+        getattr(window, "planning_section", None),
+        getattr(window, "planning_event_type", None),
+    ]
+    for combo in planning_filters:
+        if isinstance(combo, QComboBox):
+            combo.setProperty("modernFilter", True)
+            combo.setMinimumHeight(34)
 
     def shadow(widget, blur: float, y: float, alpha: int):
         effect = QGraphicsDropShadowEffect(widget)
@@ -153,40 +123,32 @@ def install_modern_app_ui(window: Any) -> None:
         if attention is not None:
             elevation_effects.append(shadow(attention, 20, 3, 20))
 
-    if planning_card is not None:
-        elevation_effects.append(shadow(planning_card, 22, 4, 24))
-
     def apply_app_visuals() -> None:
         palette = window.theme_manager.palette()
-        panel = palette["panel_bg"]
         border = palette["border"]
         text = palette["text"]
         secondary = palette["text_secondary"]
         alternate = palette["alternate_row"]
 
-        if planning_card is not None:
-            planning_card.setStyleSheet(
+        if isinstance(planning_page, object) and planning_page is not None:
+            planning_page.setStyleSheet(
                 f"""
-                QFrame#planningControlCard {{
-                    background: {panel};
-                    border: 1px solid {border};
-                    border-radius: 12px;
-                }}
-                QFrame#planningControlCard QLabel {{
-                    border: none;
-                    background: transparent;
-                }}
                 QLabel#planningMonthLabel {{
                     color: {text};
                     font-size: 16px;
                     font-weight: 650;
                     padding: 0 4px;
                 }}
+                QComboBox[modernFilter="true"] {{
+                    background: {window.theme_manager.palette()['panel_bg']};
+                    border: 1px solid {border};
+                    border-radius: 8px;
+                    padding: 6px 9px;
+                }}
                 """
             )
 
-        # Empty-state labels are intentionally quiet, but centred states should
-        # read as deliberate surfaces instead of leftover blank table space.
+        # Centred empty states look intentional instead of like missing tables.
         for label in window.findChildren(QLabel):
             if (
                 label.objectName() == "secondaryText"
@@ -210,7 +172,6 @@ def install_modern_app_ui(window: Any) -> None:
         window._sync_theme_controls = sync_theme
 
     apply_app_visuals()
-    window.modern_planning_card = planning_card
     window.modern_app_button_filter = filter_object
     window.modern_app_elevation_effects = elevation_effects
     window.polish_modern_button = polish_button
