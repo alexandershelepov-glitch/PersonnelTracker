@@ -20,6 +20,7 @@ def main() -> int:
     from events_report_ui import install_events_report_ui
     from interface_polish import install_interface_polish
     from manual_team_ui import install_manual_team_ui
+    from modern_app_ui import install_modern_app_ui
     from modern_chrome_ui import install_modern_chrome_ui
     from modern_directory_ui import install_modern_directory_ui
     from modern_elevation_ui import install_modern_elevation_ui
@@ -90,14 +91,17 @@ def main() -> int:
     # User-resizable table columns and summary splitters are applied after all
     # other UI layers so their geometry is not overwritten later in startup.
     install_workspace_resize_ui(window)
+    # App-wide visual tokens, action icons and common surfaces are installed
+    # before screen-specific prototype layers so they can refine the baseline.
+    install_modern_app_ui(window)
     # Design prototype: presentation-only rearrangement of the Composition
     # directory. It intentionally comes last so it can reuse every final widget.
     install_modern_directory_ui(window)
     # Subtle elevation is applied after the modern layout so only selected
     # reference surfaces receive depth; data-heavy areas remain restrained.
     install_modern_elevation_ui(window)
-    # The final prototype layer adds dependency-free vector icons and calmer
-    # sidebar chrome without changing navigation or data behaviour.
+    # The chrome layer adds dependency-free vector icons and calmer sidebar
+    # navigation without changing any navigation or data behaviour.
     install_modern_chrome_ui(window)
     # Short page fades and toast feedback add motion without slowing the
     # operational workflow or changing any action semantics.
