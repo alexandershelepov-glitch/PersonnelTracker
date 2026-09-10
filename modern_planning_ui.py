@@ -165,6 +165,7 @@ def install_modern_planning_ui(window: Any) -> None:
                 label
                 for label in graph.findChildren(QLabel)
                 if label.text().startswith("Нажмите ФИО")
+                or label.text().startswith("Сотрудники расположены по строкам")
             ),
             None,
         )
@@ -173,6 +174,10 @@ def install_modern_planning_ui(window: Any) -> None:
         graph_root.setSpacing(10)
 
     if graph_hint is not None:
+        graph_hint.setText(
+            "Нажмите ФИО — добавить событие работнику. Дважды нажмите пустой день — "
+            "добавить событие на конкретную дату. Нажмите существующее событие — открыть его."
+        )
         graph_hint.setObjectName("planningHint")
         graph_hint.setMaximumHeight(48)
         graph_hint.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
