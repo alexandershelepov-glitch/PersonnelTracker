@@ -1,22 +1,32 @@
-"""Restrained motion layer for the modern PersonnelTracker prototype.
+"""Visible but restrained motion for the modern PersonnelTracker prototype.
 
-Presentation only. Adds short page fades and a lightweight animated toast for
-successful Directory copying. Navigation, clipboard logic and persistence stay
-owned by their existing UI/service layers.
+Presentation only. Adds a stronger page reveal, a moving sidebar selection
+indicator and a lightweight animated toast. Navigation, clipboard logic and
+persistence stay owned by their existing UI/service layers.
 """
 from __future__ import annotations
 
 from typing import Any
 
 
-PAGE_FADE_MS = 150
-TOAST_IN_MS = 160
-TOAST_HOLD_MS = 1200
-TOAST_OUT_MS = 180
+PAGE_FADE_MS = 230
+PAGE_START_OPACITY = 0.35
+NAV_INDICATOR_MS = 240
+TOAST_IN_MS = 220
+TOAST_HOLD_MS = 1400
+TOAST_OUT_MS = 220
+TOAST_TRAVEL_PX = 20
 
 
 def install_modern_motion_ui(window: Any) -> None:
-    from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QTimer, Qt
+    from PySide6.QtCore import (
+        QEasingCurve,
+        QPoint,
+        QPropertyAnimation,
+        QRect,
+        QTimer,
+        Qt,
+    )
     from PySide6.QtWidgets import (
         QFrame,
         QGraphicsOpacityEffect,
@@ -39,12 +49,12 @@ def install_modern_motion_ui(window: Any) -> None:
             return
 
         effect = QGraphicsOpacityEffect(page)
-        effect.setOpacity(0.84)
+        effect.setOpacity(PAGE_START_OPACITY)
         page.setGraphicsEffect(effect)
 
         animation = QPropertyAnimation(effect, b"opacity", page)
         animation.setDuration(PAGE_FADE_MS)
-        animation.setStartValue(0.84)
+        animation.setStartValue(PAGE_START_OPACITY)
         animation.setEndValue(1.0)
         animation.setEasingCurve(QEasingCurve.OutCubic)
 
@@ -54,9 +64,68 @@ def install_modern_motion_ui(window: Any) -> None:
 
         animation.finished.connect(finish)
         window.modern_motion_page_animation = animation
-        animation.start()
+
+        # Let Qt paint the newly selected page once at the starting opacity.
+        # Starting in the next event-loop turn makes the reveal perceptible on
+        # fast Macs instead of completing between two visible frames.
+        QTimer.singleShot(0, animation.start)
 
     pages.currentChanged.connect(animate_current_page)
+
+    # -------------------- Moving sidebar indicator ------------------------
+    sidebar = getattr(window, "modern_sidebar", None)
+    if sidebar is None:
+        sidebar = window.findChild(QFrame, "sidebar")
+
+    nav_buttons = list(getattr(window, "modern_sidebar_buttons", []) or [])
+    if not nav_buttons:
+        group = getattr(window, "nav_group", None)
+        if group is not None:
+            nav_buttons = [button for button in group.buttons() if not button.isHidden()]
+
+    nav_indicator = None
+    nav_animation = None
+    if sidebar is not None and nav_buttons:
+        nav_indicator = QFrame(sidebar)
+        nav_indicator.setObjectName("modernNavIndicator")
+        nav_indicator.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        nav_indicator.hide()
+
+        nav_animation = QPropertyAnimation(nav_indicator, b"geometry", sidebar)
+        nav_animation.setDuration(NAV_INDICATOR_MS)
+        nav_animation.setEasingCurve(QEasingCurve.OutCubic)
+
+        def indicator_rect(button: QPushButton) -> QRect:
+            geometry = button.geometry()
+            height = max(22, geometry.height() - 14)
+            return QRect(4, geometry.y() + 7, 3, height)
+
+        def move_indicator(button: QPushButton, *, animated: bool = True) -> None:
+            if nav_indicator is None or button.isHidden():
+                return
+            target = indicator_rect(button)
+            nav_animation.stop()
+            if not nav_indicator.isVisible() or not animated:
+                nav_indicator.setGeometry(target)
+                nav_indicator.show()
+            else:
+                nav_animation.setStartValue(nav_indicator.geometry())
+                nav_animation.setEndValue(target)
+                nav_animation.start()
+            nav_indicator.raise_()
+
+        for button in nav_buttons:
+            button.toggled.connect(
+                lambda checked, b=button: move_indicator(b) if checked else None
+            )
+
+        def place_initial_indicator() -> None:
+            checked = getattr(window, "nav_group", None)
+            checked = checked.checkedButton() if checked is not None else None
+            if checked is not None and not checked.isHidden():
+                move_indicator(checked, animated=False)
+
+        QTimer.singleShot(0, place_initial_indicator)
 
     # -------------------- Small non-blocking toast ------------------------
     central = window.centralWidget()
@@ -65,7 +134,7 @@ def install_modern_motion_ui(window: Any) -> None:
     toast.setAttribute(Qt.WA_TransparentForMouseEvents, True)
     toast.hide()
     toast_layout = QHBoxLayout(toast)
-    toast_layout.setContentsMargins(13, 8, 13, 8)
+    toast_layout.setContentsMargins(14, 9, 14, 9)
     toast_layout.setSpacing(7)
     toast_mark = QLabel("✓", toast)
     toast_mark.setObjectName("modernToastMark")
@@ -100,18 +169,19 @@ def install_modern_motion_ui(window: Any) -> None:
     toast_timer.setInterval(TOAST_HOLD_MS)
     toast_timer.timeout.connect(toast_out.start)
 
-    def apply_toast_style() -> None:
+    def apply_motion_style() -> None:
         palette = window.theme_manager.palette()
         panel = palette["panel_bg"]
         text = palette["text"]
         border = palette["border"]
         success = palette["success"]
+        accent = palette["accent"]
         toast.setStyleSheet(
             f"""
             QFrame#modernToast {{
                 background: {panel};
                 border: 1px solid {border};
-                border-radius: 10px;
+                border-radius: 11px;
             }}
             QLabel#modernToastMark {{
                 color: {success};
@@ -127,6 +197,10 @@ def install_modern_motion_ui(window: Any) -> None:
             }}
             """
         )
+        if nav_indicator is not None:
+            nav_indicator.setStyleSheet(
+                f"QFrame#modernNavIndicator {{ background: {accent}; border: none; border-radius: 2px; }}"
+            )
 
     def place_toast() -> tuple[QPoint, QPoint]:
         toast.adjustSize()
@@ -135,7 +209,7 @@ def install_modern_motion_ui(window: Any) -> None:
             max(margin, central.width() - toast.width() - margin),
             max(margin, central.height() - toast.height() - margin),
         )
-        start = QPoint(end.x(), end.y() + 8)
+        start = QPoint(end.x(), end.y() + TOAST_TRAVEL_PX)
         return start, end
 
     def show_toast(text: str = "Скопировано") -> None:
@@ -177,14 +251,16 @@ def install_modern_motion_ui(window: Any) -> None:
     if callable(original_sync):
         def sync_theme() -> None:
             original_sync()
-            apply_toast_style()
+            apply_motion_style()
 
         window._sync_theme_controls = sync_theme
 
-    apply_toast_style()
+    apply_motion_style()
     window.modern_motion_toast = toast
     window.modern_motion_toast_effect = toast_effect
     window.modern_motion_toast_timer = toast_timer
+    window.modern_motion_nav_indicator = nav_indicator
+    window.modern_motion_nav_animation = nav_animation
     window.show_modern_toast = show_toast
     window.modern_motion_page_animation = None
     window._modern_motion_ui_installed = True
