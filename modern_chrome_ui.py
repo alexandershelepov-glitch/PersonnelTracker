@@ -7,10 +7,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from modern_icons import line_icon
+
 
 def install_modern_chrome_ui(window: Any) -> None:
-    from PySide6.QtCore import QRectF, QSize, Qt
-    from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
+    from PySide6.QtCore import QSize
+    from PySide6.QtGui import QAction
     from PySide6.QtWidgets import QFrame, QLabel, QLineEdit, QPushButton
 
     if getattr(window, "_modern_chrome_ui_installed", False):
@@ -20,64 +22,6 @@ def install_modern_chrome_ui(window: Any) -> None:
     search = getattr(window, "composition_search", None)
     if sidebar is None:
         return
-
-    def line_icon(kind: str, color: str, size: int = 20) -> QIcon:
-        """Draw a tiny dependency-free outline icon suitable for Retina Qt UI."""
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(QColor(color))
-        pen.setWidthF(1.65)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-
-        if kind in {"today", "planning"}:
-            painter.drawRoundedRect(QRectF(3.0, 4.5, 14.0, 12.5), 2.2, 2.2)
-            painter.drawLine(3.2, 8.0, 16.8, 8.0)
-            painter.drawLine(6.2, 2.8, 6.2, 6.1)
-            painter.drawLine(13.8, 2.8, 13.8, 6.1)
-            if kind == "today":
-                painter.setBrush(QColor(color))
-                painter.setPen(Qt.NoPen)
-                painter.drawEllipse(QRectF(8.15, 10.2, 3.7, 3.7))
-            else:
-                painter.drawLine(6.0, 11.0, 10.0, 11.0)
-                painter.drawLine(6.0, 14.0, 13.5, 14.0)
-        elif kind == "people":
-            painter.drawEllipse(QRectF(4.0, 3.2, 5.5, 5.5))
-            painter.drawEllipse(QRectF(11.6, 4.6, 4.2, 4.2))
-            painter.drawArc(QRectF(2.2, 8.5, 9.2, 8.3), 20 * 16, 140 * 16)
-            painter.drawArc(QRectF(9.2, 9.0, 8.4, 7.2), 22 * 16, 128 * 16)
-        elif kind == "settings":
-            for y, knob in ((5.0, 7.0), (10.0, 13.0), (15.0, 9.0)):
-                painter.drawLine(3.0, y, 17.0, y)
-                painter.setBrush(QColor(color))
-                painter.drawEllipse(QRectF(knob - 1.5, y - 1.5, 3.0, 3.0))
-                painter.setBrush(Qt.NoBrush)
-        elif kind == "search":
-            painter.drawEllipse(QRectF(3.2, 3.2, 9.8, 9.8))
-            painter.drawLine(12.0, 12.0, 17.0, 17.0)
-        elif kind == "copy":
-            painter.drawRoundedRect(QRectF(6.0, 5.0, 10.0, 11.0), 1.8, 1.8)
-            painter.drawRoundedRect(QRectF(3.2, 2.3, 10.0, 11.0), 1.8, 1.8)
-        elif kind == "open":
-            painter.drawRoundedRect(QRectF(3.2, 4.0, 11.3, 12.4), 1.8, 1.8)
-            painter.drawLine(10.5, 3.5, 16.7, 3.5)
-            painter.drawLine(16.5, 3.7, 16.5, 9.7)
-            painter.drawLine(16.2, 3.8, 9.4, 10.6)
-        elif kind == "reset":
-            painter.drawArc(QRectF(3.0, 3.0, 14.0, 14.0), 40 * 16, 285 * 16)
-            painter.drawLine(3.9, 4.2, 3.3, 8.0)
-            painter.drawLine(3.9, 4.2, 7.6, 4.8)
-        elif kind == "plus":
-            painter.drawLine(10.0, 4.0, 10.0, 16.0)
-            painter.drawLine(4.0, 10.0, 16.0, 10.0)
-
-        painter.end()
-        return QIcon(pixmap)
 
     icon_kinds = {
         "Сегодня": "today",
@@ -120,7 +64,6 @@ def install_modern_chrome_ui(window: Any) -> None:
 
     def apply_chrome() -> None:
         palette = window.theme_manager.palette()
-        panel = palette["panel_bg"]
         window_bg = palette["window_bg"]
         hover = palette["hover"]
         alternate = palette["alternate_row"]
