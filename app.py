@@ -20,6 +20,7 @@ def main() -> int:
     from events_report_ui import install_events_report_ui
     from interface_polish import install_interface_polish
     from manual_team_ui import install_manual_team_ui
+    from modern_chrome_ui import install_modern_chrome_ui
     from modern_directory_ui import install_modern_directory_ui
     from modern_elevation_ui import install_modern_elevation_ui
     from navigation_context import install_context_navigation
@@ -94,6 +95,9 @@ def main() -> int:
     # Subtle elevation is applied after the modern layout so only selected
     # reference surfaces receive depth; data-heavy areas remain restrained.
     install_modern_elevation_ui(window)
+    # The final prototype layer adds dependency-free vector icons and calmer
+    # sidebar chrome without changing navigation or data behaviour.
+    install_modern_chrome_ui(window)
     window.show()
     return app.exec()
 
