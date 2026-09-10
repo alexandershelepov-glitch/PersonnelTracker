@@ -29,6 +29,7 @@ def main() -> int:
     from navigation_context import install_context_navigation
     from planning_ui import install_planning_ui
     from planning_usability import install_planning_usability
+    from release_polish_ui import install_release_polish_ui
     from reports_ui import install_reports_ui
     from semi_auto_team_ui import install_semi_auto_team_ui
     from service_page_scroll import install_service_page_scroll
@@ -110,6 +111,9 @@ def main() -> int:
     # Short page fades and toast feedback add motion without slowing the
     # operational workflow or changing any action semantics.
     install_modern_motion_ui(window)
+    # One final presentation-only pass owns the visible version and removes
+    # obsolete development wording from user-facing report text.
+    install_release_polish_ui(window)
     window.show()
     return app.exec()
 
