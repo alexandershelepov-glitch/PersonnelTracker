@@ -12,8 +12,16 @@ from assignment_history_compat import install_assignment_history_features
 from backup_local import install_backup_features
 from composition_ui import install_composition_ui
 from csv_data import install_csv_features
+from modern_chrome_ui import install_modern_chrome_ui
 from modern_directory_ui import install_modern_directory_ui
-from modern_motion_ui import PAGE_FADE_MS, TOAST_HOLD_MS, install_modern_motion_ui
+from modern_motion_ui import (
+    NAV_INDICATOR_MS,
+    PAGE_FADE_MS,
+    PAGE_START_OPACITY,
+    TOAST_HOLD_MS,
+    TOAST_TRAVEL_PX,
+    install_modern_motion_ui,
+)
 from service_page_scroll import install_service_page_scroll
 from temporal_snapshot import install_temporal_snapshot_features
 from ui import MainWindow
@@ -43,6 +51,7 @@ class ModernMotionUiTests(unittest.TestCase):
             install_composition_ui,
             install_workspace_resize_ui,
             install_modern_directory_ui,
+            install_modern_chrome_ui,
             install_modern_motion_ui,
         ):
             install(self.window)
@@ -53,6 +62,9 @@ class ModernMotionUiTests(unittest.TestCase):
         animation = getattr(self.window, "modern_motion_page_animation", None)
         if animation is not None:
             animation.stop()
+        nav_animation = getattr(self.window, "modern_motion_nav_animation", None)
+        if nav_animation is not None:
+            nav_animation.stop()
         timer = getattr(self.window, "modern_motion_toast_timer", None)
         if timer is not None:
             timer.stop()
@@ -64,20 +76,35 @@ class ModernMotionUiTests(unittest.TestCase):
         self.assertTrue(self.window._modern_motion_ui_installed)
         self.assertEqual(self.window.modern_motion_toast.objectName(), "modernToast")
         self.assertEqual(self.window.modern_motion_toast_timer.interval(), TOAST_HOLD_MS)
+        self.assertIsNotNone(self.window.modern_motion_nav_indicator)
         toast = self.window.modern_motion_toast
         install_modern_motion_ui(self.window)
         self.assertIs(self.window.modern_motion_toast, toast)
 
-    def test_page_change_starts_short_fade(self):
+    def test_page_change_starts_visible_fade(self):
         current = self.window.pages.currentIndex()
         target = 2 if current != 2 else 0
         self.window.pages.setCurrentIndex(target)
         animation = self.window.modern_motion_page_animation
         self.assertIsNotNone(animation)
         self.assertEqual(animation.duration(), PAGE_FADE_MS)
+        self.assertLessEqual(PAGE_START_OPACITY, 0.5)
         self.assertIsNotNone(self.window.pages.currentWidget().graphicsEffect())
 
+    def test_sidebar_indicator_has_real_travel_animation(self):
+        buttons = self.window.modern_sidebar_buttons
+        self.assertGreaterEqual(len(buttons), 2)
+        target = next(button for button in buttons if not button.isChecked())
+        target.click()
+        self.app.processEvents()
+        indicator = self.window.modern_motion_nav_indicator
+        animation = self.window.modern_motion_nav_animation
+        self.assertTrue(indicator.isVisible())
+        self.assertEqual(animation.duration(), NAV_INDICATOR_MS)
+        self.assertGreater(animation.endValue().y(), -1)
+
     def test_toast_can_be_shown_without_blocking(self):
+        self.assertGreaterEqual(TOAST_TRAVEL_PX, 16)
         self.window.show_modern_toast("Готово")
         self.app.processEvents()
         toast = self.window.modern_motion_toast
