@@ -12,7 +12,7 @@ from modern_icons import line_icon
 
 
 def install_modern_app_ui(window: Any) -> None:
-    from PySide6.QtCore import QEvent, QObject, QSize
+    from PySide6.QtCore import QEvent, QObject, QSize, Qt
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import (
         QApplication,
@@ -125,9 +125,10 @@ def install_modern_app_ui(window: Any) -> None:
                 card_layout.setSpacing(10)
                 # Preserve the original visual order, independent of which
                 # layout index happened to be lower after other UI adapters.
-                toolbar_layout = first_layout if month_label in [
+                first_widgets = [
                     first_layout.itemAt(i).widget() for i in range(first_layout.count())
-                ] else second_layout
+                ]
+                toolbar_layout = first_layout if month_label in first_widgets else second_layout
                 filter_layout = second_layout if toolbar_layout is first_layout else first_layout
                 card_layout.addLayout(toolbar_layout)
                 card_layout.addLayout(filter_layout)
@@ -162,7 +163,6 @@ def install_modern_app_ui(window: Any) -> None:
         text = palette["text"]
         secondary = palette["text_secondary"]
         alternate = palette["alternate_row"]
-        hover = palette["hover"]
 
         if planning_card is not None:
             planning_card.setStyleSheet(
@@ -188,16 +188,18 @@ def install_modern_app_ui(window: Any) -> None:
         # Empty-state labels are intentionally quiet, but centred states should
         # read as deliberate surfaces instead of leftover blank table space.
         for label in window.findChildren(QLabel):
-            if label.objectName() == "secondaryText" and label.alignment():
-                if label.alignment() & 0x0004:  # Qt.AlignHCenter without importing Qt here.
-                    label.setStyleSheet(
-                        f"color: {secondary}; background: {alternate}; "
-                        f"border: 1px solid {border}; border-radius: 10px; padding: 18px;"
-                    )
+            if (
+                label.objectName() == "secondaryText"
+                and label.alignment() & Qt.AlignHCenter
+            ):
+                label.setStyleSheet(
+                    f"color: {secondary}; background: {alternate}; "
+                    f"border: 1px solid {border}; border-radius: 10px; padding: 18px;"
+                )
 
-        for button in app.allWidgets():
-            if isinstance(button, QPushButton):
-                polish_button(button)
+        for widget in app.allWidgets():
+            if isinstance(widget, QPushButton):
+                polish_button(widget)
 
     original_sync = getattr(window, "_sync_theme_controls", None)
     if callable(original_sync):
