@@ -25,6 +25,7 @@ def main() -> int:
     from modern_directory_ui import install_modern_directory_ui
     from modern_elevation_ui import install_modern_elevation_ui
     from modern_motion_ui import install_modern_motion_ui
+    from modern_planning_ui import install_modern_planning_ui
     from navigation_context import install_context_navigation
     from planning_ui import install_planning_ui
     from planning_usability import install_planning_usability
@@ -94,6 +95,9 @@ def main() -> int:
     # App-wide visual tokens, action icons and common surfaces are installed
     # before screen-specific prototype layers so they can refine the baseline.
     install_modern_app_ui(window)
+    # Planning needs a compact control surface rather than the legacy sparse
+    # grid; only existing widgets are rearranged, with all callbacks preserved.
+    install_modern_planning_ui(window)
     # Design prototype: presentation-only rearrangement of the Composition
     # directory. It intentionally comes last so it can reuse every final widget.
     install_modern_directory_ui(window)
