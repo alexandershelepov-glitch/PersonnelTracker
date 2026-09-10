@@ -104,7 +104,6 @@ def install_modern_motion_ui(window: Any) -> None:
         palette = window.theme_manager.palette()
         panel = palette["panel_bg"]
         text = palette["text"]
-        secondary = palette["text_secondary"]
         border = palette["border"]
         success = palette["success"]
         toast.setStyleSheet(
@@ -128,8 +127,6 @@ def install_modern_motion_ui(window: Any) -> None:
             }}
             """
         )
-        toast_text.setToolTip(f"Уведомление исчезнет автоматически")
-        toast_mark.setToolTip(secondary)
 
     def place_toast() -> tuple[QPoint, QPoint]:
         toast.adjustSize()
