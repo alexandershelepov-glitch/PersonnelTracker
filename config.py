@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 APP_NAME = "Учёт личного состава"
+APP_VERSION = "0.9.3"
 DB_FILENAME = "personnel.db"
 
 EVENT_TYPES: dict[str, list[str]] = {
