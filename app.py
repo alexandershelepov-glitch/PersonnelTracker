@@ -23,6 +23,7 @@ def main() -> int:
     from modern_chrome_ui import install_modern_chrome_ui
     from modern_directory_ui import install_modern_directory_ui
     from modern_elevation_ui import install_modern_elevation_ui
+    from modern_motion_ui import install_modern_motion_ui
     from navigation_context import install_context_navigation
     from planning_ui import install_planning_ui
     from planning_usability import install_planning_usability
@@ -98,6 +99,9 @@ def main() -> int:
     # The final prototype layer adds dependency-free vector icons and calmer
     # sidebar chrome without changing navigation or data behaviour.
     install_modern_chrome_ui(window)
+    # Short page fades and toast feedback add motion without slowing the
+    # operational workflow or changing any action semantics.
+    install_modern_motion_ui(window)
     window.show()
     return app.exec()
 
