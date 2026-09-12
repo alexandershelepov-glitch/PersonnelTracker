@@ -16,6 +16,7 @@ def main() -> int:
     from backup_local import install_backup_features
     from composition_ui import install_composition_ui
     from csv_data import install_csv_features
+    from custom_workspace_ui import install_custom_workspace_ui
     from date_state_report_ui import install_date_state_report_ui
     from employee_profile_ui import install_employee_profile_ui
     from events_report_ui import install_events_report_ui
@@ -122,6 +123,9 @@ def main() -> int:
     # The optional compact navigation state is applied after all chrome/text
     # layers so hiding labels cannot be undone by later presentation passes.
     install_sidebar_collapse_ui(window)
+    # v1.1 workspace preferences are installed after acceptance/chrome layers
+    # so their saved table geometry is the final authority for user layout.
+    install_custom_workspace_ui(window)
     window.show()
     return app.exec()
 
