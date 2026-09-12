@@ -10,6 +10,7 @@ def main() -> int:
     from PySide6.QtCore import QLocale
     from PySide6.QtWidgets import QApplication
 
+    from acceptance_ui_polish import install_acceptance_ui_polish
     from assignment_history_compat import install_assignment_history_features
     from assignment_history_report_ui import install_assignment_history_report_ui
     from backup_local import install_backup_features
@@ -111,6 +112,9 @@ def main() -> int:
     # Short page fades and toast feedback add motion without slowing the
     # operational workflow or changing any action semantics.
     install_modern_motion_ui(window)
+    # Acceptance-stage visual fixes keep long macOS message-box actions readable
+    # and SHDS identity columns manually resizable without touching data rules.
+    install_acceptance_ui_polish(window)
     # One final presentation-only pass owns the visible version and removes
     # obsolete development wording from user-facing report text.
     install_release_polish_ui(window)
