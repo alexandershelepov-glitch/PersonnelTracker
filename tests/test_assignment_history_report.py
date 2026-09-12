@@ -8,6 +8,7 @@ from pathlib import Path
 from assignment_history import AssignmentHistoryService
 from assignment_history_report import (
     CURRENT_ASSIGNMENT,
+    SOURCE_LABELS,
     AssignmentHistoryReport,
     assignment_history_headers,
     default_assignment_history_csv_name,
@@ -66,6 +67,9 @@ class AssignmentHistoryReportTests(unittest.TestCase):
         self.assertEqual(older.start_at, "01.09.2026 08:30")
         self.assertEqual(older.end_at, "05.09.2026 17:15")
         self.assertEqual(older.source, "Назначение")
+
+    def test_baseline_label_has_no_obsolete_version_number(self):
+        self.assertEqual(SOURCE_LABELS["baseline"], "Начальное состояние")
 
     def test_employee_filter_and_table(self):
         self.assertEqual(len(self.report.rows(self.employee_id)), 2)
