@@ -78,8 +78,9 @@ class AssignmentHistoryReport:
         self.history = history
 
     def rows(self, employee_id: int | None = None) -> tuple[AssignmentHistoryRow, ...]:
-        result = []
+        result: list[AssignmentHistoryRow] = []
         for row in self.history.list_history(employee_id):
+            raw_source = str(row["source"] or "").strip()
             result.append(AssignmentHistoryRow(
                 start_at=format_history_moment(row["start_at"]),
                 end_at=format_history_moment(row["end_at"], open_ended=True),
@@ -90,13 +91,10 @@ class AssignmentHistoryReport:
                 section=_display(row["section"]),
                 group_name=_display(row["group_name"]),
                 position=_display(row["position"]),
-                source=SOURCE_LABELS.get(str(row["source"] or ""), _display(row["source"])),
+                source=SOURCE_LABELS.get(raw_source, raw_source or EMPTY_VALUE),
             ))
         return tuple(result)
 
     def table(self, employee_id: int | None = None) -> ReportTable:
         rows = self.rows(employee_id)
-        return ReportTable(
-            headers=assignment_history_headers(),
-            rows=tuple(row.values() for row in rows),
-        )
+        return ReportTable(assignment_history_headers(), tuple(row.values() for row in rows))
