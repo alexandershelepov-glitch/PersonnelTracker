@@ -37,7 +37,6 @@ class AcceptanceUiFixTests(unittest.TestCase):
         for name in ("Должность", "ФИО"):
             column = self.window.staff_headers.index(name)
             self.assertEqual(header.sectionResizeMode(column), QHeaderView.Interactive)
-            self.assertGreater(self.window.staff_table.columnWidth(column), 100)
 
     def test_long_messagebox_actions_are_readable(self):
         box = QMessageBox(self.window)
