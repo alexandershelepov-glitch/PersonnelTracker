@@ -38,9 +38,10 @@ def install_workspace_resize_ui(window: Any) -> None:
             directory_layout.setStretchFactor(directory_empty, 1)
 
     # v1.1 starts with one high-value table rather than making every grid
-    # configurable at once. QHeaderView already serializes visual order, widths
-    # and hidden sections, so keep the preference local in QSettings and leave
-    # personnel/database records untouched.
+    # configurable at once. QHeaderView serializes the user's visual order and
+    # widths well for persistence. Factory reset is explicit, though: restoring
+    # a previously captured header-state blob is not reliable for reordering on
+    # every Qt/macOS combination, so reset logical sections deterministically.
     if directory_table is not None:
         header = directory_table.horizontalHeader()
         header.setStretchLastSection(False)
@@ -48,30 +49,49 @@ def install_workspace_resize_ui(window: Any) -> None:
         header.setMinimumSectionSize(72)
 
         defaults = (220, 180, 110, 145, 240, 105)
+        settings_key = "workspace/directory_header_state"
+
         for column in range(directory_table.columnCount()):
             if directory_table.isColumnHidden(column):
                 continue
             header.setSectionResizeMode(column, QHeaderView.Interactive)
-            if column < len(defaults):
-                directory_table.setColumnWidth(column, defaults[column])
 
+        def apply_directory_defaults() -> None:
+            previous_block = header.blockSignals(True)
+            try:
+                # Restore visual order to logical order. moveSection() accepts
+                # visual indexes, so resolve each logical section at every step.
+                for logical in range(header.count()):
+                    current_visual = header.visualIndex(logical)
+                    if current_visual >= 0 and current_visual != logical:
+                        header.moveSection(current_visual, logical)
+                for column, width in enumerate(defaults):
+                    if column < directory_table.columnCount():
+                        directory_table.setColumnWidth(column, width)
+                # ID is an implementation detail and must never become visible
+                # because of a stale/corrupt saved header state.
+                if directory_table.columnCount() > 6:
+                    directory_table.setColumnHidden(6, True)
+            finally:
+                header.blockSignals(previous_block)
+
+        apply_directory_defaults()
         default_state = header.saveState()
-        settings_key = "workspace/directory_header_state"
         saved_header = window.settings.value(settings_key)
         if saved_header:
-            header.blockSignals(True)
+            previous_block = header.blockSignals(True)
             restored = header.restoreState(saved_header)
+            header.blockSignals(previous_block)
             if not restored:
-                header.restoreState(default_state)
-            header.blockSignals(False)
+                apply_directory_defaults()
+            if directory_table.columnCount() > 6:
+                directory_table.setColumnHidden(6, True)
 
         def save_directory_header(*_args) -> None:
             window.settings.setValue(settings_key, header.saveState())
 
         def reset_directory_header() -> None:
-            header.blockSignals(True)
-            header.restoreState(default_state)
-            header.blockSignals(False)
+            apply_directory_defaults()
             window.settings.remove(settings_key)
 
         header.sectionMoved.connect(save_directory_header)
