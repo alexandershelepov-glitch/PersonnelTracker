@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication, QHeaderView, QMessageBox
+from PySide6.QtWidgets import QApplication, QCalendarWidget, QHeaderView, QMessageBox
 
 from acceptance_ui_polish import install_acceptance_ui_polish
 from ui import MainWindow
@@ -52,6 +52,16 @@ class AcceptanceUiFixTests(unittest.TestCase):
         self.assertGreaterEqual(second.minimumWidth(), 230)
         self.assertGreaterEqual(third.minimumWidth(), 230)
         box.close()
+
+    def test_calendar_popup_removes_global_table_cell_padding(self):
+        calendar = QCalendarWidget(self.window)
+        calendar.show()
+        self.app.processEvents()
+
+        stylesheet = calendar.styleSheet()
+        self.assertIn("QTableView::item", stylesheet)
+        self.assertIn("padding: 0px", stylesheet)
+        calendar.close()
 
 
 if __name__ == "__main__":
