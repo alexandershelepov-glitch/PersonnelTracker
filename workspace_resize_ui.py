@@ -70,8 +70,21 @@ def install_workspace_resize_ui(window: Any) -> None:
 
         def reset_directory_header() -> None:
             header.blockSignals(True)
-            header.restoreState(default_state)
-            header.blockSignals(False)
+            try:
+                header.restoreState(default_state)
+                # restoreState restores sizes/hidden flags and, in practice, the
+                # visual order too.  Move every logical section back to its
+                # factory slot explicitly so the reset is deterministic even on
+                # Qt builds where restoreState alone does not reorder after
+                # moveSection.
+                for logical in range(header.count()):
+                    visual = header.visualIndex(logical)
+                    if visual != logical:
+                        header.moveSection(visual, logical)
+            finally:
+                header.blockSignals(False)
+            # Never let the sectionMoved/sectionResized handlers above write the
+            # intermediate reset state back into QSettings.
             window.settings.remove(settings_key)
 
         header.sectionMoved.connect(save_directory_header)
@@ -102,15 +115,15 @@ def install_workspace_resize_ui(window: Any) -> None:
     # ------------------------------------------------------------------
     people = getattr(window, "planning_people_table", None)
     if people is not None:
-        header = people.horizontalHeader()
-        header.setStretchLastSection(False)
-        header.setMinimumSectionSize(72)
+        people_header = people.horizontalHeader()
+        people_header.setStretchLastSection(False)
+        people_header.setMinimumSectionSize(72)
         for column in range(min(3, people.columnCount())):
-            header.setSectionResizeMode(column, QHeaderView.Interactive)
+            people_header.setSectionResizeMode(column, QHeaderView.Interactive)
 
         saved_header = window.settings.value("planning/people_header_state")
         if saved_header:
-            header.restoreState(saved_header)
+            people_header.restoreState(saved_header)
         else:
             defaults = (200, 165, 125)
             for column, width in enumerate(defaults):
@@ -118,12 +131,12 @@ def install_workspace_resize_ui(window: Any) -> None:
                     people.setColumnWidth(column, width)
 
         def save_people_header(*_args) -> None:
-            window.settings.setValue("planning/people_header_state", header.saveState())
+            window.settings.setValue("planning/people_header_state", people_header.saveState())
 
-        header.sectionResized.connect(save_people_header)
+        people_header.sectionResized.connect(save_people_header)
         # Familiar desktop gesture: double-click a divider to fit that column.
-        header.sectionDoubleClicked.connect(people.resizeColumnToContents)
-        window.planning_people_header = header
+        people_header.sectionDoubleClicked.connect(people.resizeColumnToContents)
+        window.planning_people_header = people_header
 
     # ------------------------------------------------------------------
     # Summary: replace the rigid top-table + fixed HBox below it with nested

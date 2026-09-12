@@ -64,6 +64,59 @@ class WorkspaceResizeUiTests(unittest.TestCase):
         self.assertEqual(table.columnWidth(0), 220)
         self.assertIsNone(self.window.settings.value("workspace/directory_header_state"))
 
+    def _open_new_window(self):
+        """A second app window sharing the same QSettings file."""
+        other = MainWindow(Path(self.tmp.name) / "personnel_other.db")
+        install_composition_ui(other)
+        install_planning_ui(other)
+        install_workspace_resize_ui(other)
+        other.show()
+        self.app.processEvents()
+        return other
+
+    def test_directory_layout_survives_restart_and_reset_clears_it(self):
+        # 1. Change the directory order and width in the first window.
+        header = self.window.directory_header
+        header.moveSection(0, 2)
+        self.window.composition_directory_table.setColumnWidth(1, 260)
+        self.app.processEvents()
+        self.assertEqual(header.visualIndex(0), 2)
+        self.assertIsNotNone(self.window.settings.value("workspace/directory_header_state"))
+
+        # 2. A new window with the same settings restores the user layout.
+        second = self._open_new_window()
+        try:
+            self.assertEqual(second.directory_header.visualIndex(0), 2)
+            self.assertEqual(second.composition_directory_table.columnWidth(1), 260)
+        finally:
+            second.close()
+            second.deleteLater()
+            self.app.processEvents()
+
+        # 3. Reset in another window restores the factory layout and drops the key.
+        resetter = self._open_new_window()
+        try:
+            resetter.reset_directory_columns_action.trigger()
+            self.app.processEvents()
+            self.assertEqual(resetter.directory_header.visualIndex(0), 0)
+            self.assertEqual(resetter.composition_directory_table.columnWidth(0), 220)
+            self.assertIsNone(resetter.settings.value("workspace/directory_header_state"))
+        finally:
+            resetter.close()
+            resetter.deleteLater()
+            self.app.processEvents()
+
+        # 4. Yet another window must open factory-default, not the old user layout.
+        third = self._open_new_window()
+        try:
+            self.assertEqual(third.directory_header.visualIndex(0), 0)
+            self.assertEqual(third.composition_directory_table.columnWidth(0), 220)
+            self.assertTrue(third.composition_directory_table.isColumnHidden(6))
+        finally:
+            third.close()
+            third.deleteLater()
+            self.app.processEvents()
+
     def test_planning_identity_columns_are_interactive_and_persist(self):
         header = self.window.planning_people_table.horizontalHeader()
         for column in range(3):
