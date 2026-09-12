@@ -34,6 +34,7 @@ def main() -> int:
     from reports_ui import install_reports_ui
     from semi_auto_team_ui import install_semi_auto_team_ui
     from service_page_scroll import install_service_page_scroll
+    from sidebar_collapse_ui import install_sidebar_collapse_ui
     from staffing_report_ui import install_staffing_report_ui
     from tab_theme_fix import install_tab_theme_fix
     from temporal_snapshot import install_temporal_snapshot_features
@@ -112,12 +113,15 @@ def main() -> int:
     # Short page fades and toast feedback add motion without slowing the
     # operational workflow or changing any action semantics.
     install_modern_motion_ui(window)
-    # Acceptance-stage visual fixes keep long macOS message-box actions readable
-    # and SHDS identity columns manually resizable without touching data rules.
+    # Acceptance-stage visual fixes keep long macOS message-box actions readable,
+    # SHDS identity columns resizable and calendar dates unclipped.
     install_acceptance_ui_polish(window)
     # One final presentation-only pass owns the visible version and removes
     # obsolete development wording from user-facing report text.
     install_release_polish_ui(window)
+    # The optional compact navigation state is applied after all chrome/text
+    # layers so hiding labels cannot be undone by later presentation passes.
+    install_sidebar_collapse_ui(window)
     window.show()
     return app.exec()
 
