@@ -3,7 +3,7 @@
 Presentation only:
 - Directory keeps filters compact and gives remaining height to its data/empty area.
 - Directory columns are movable/resizable and persist their layout locally.
-- Planning employee columns become user-resizable and persist their widths.
+- Planning employee columns are movable/resizable and persist their layout.
 - Summary work areas use nested splitters so the user controls vertical and
   horizontal proportions without changing personnel/business data.
 """
@@ -111,32 +111,76 @@ def install_workspace_resize_ui(window: Any) -> None:
 
     # ------------------------------------------------------------------
     # Planning: keep the outer splitter, but let the user control the three
-    # identity columns inside the fixed-left table as well.
+    # identity columns inside the fixed-left table as well.  QHeaderView
+    # serializes visual order, widths and hidden sections, so the preference
+    # stays in QSettings under the existing key; the calendar table is never
+    # touched and keeps its chronological columns.
     # ------------------------------------------------------------------
     people = getattr(window, "planning_people_table", None)
     if people is not None:
         people_header = people.horizontalHeader()
         people_header.setStretchLastSection(False)
+        people_header.setSectionsMovable(True)
         people_header.setMinimumSectionSize(72)
         for column in range(min(3, people.columnCount())):
             people_header.setSectionResizeMode(column, QHeaderView.Interactive)
 
-        saved_header = window.settings.value("planning/people_header_state")
-        if saved_header:
-            people_header.restoreState(saved_header)
-        else:
-            defaults = (200, 165, 125)
-            for column, width in enumerate(defaults):
-                if column < people.columnCount():
-                    people.setColumnWidth(column, width)
+        people_defaults = (200, 165, 125)
+        for column, width in enumerate(people_defaults):
+            if column < people.columnCount():
+                people.setColumnWidth(column, width)
+
+        people_default_state = people_header.saveState()
+        people_settings_key = "planning/people_header_state"
+        saved_people_header = window.settings.value(people_settings_key)
+        if saved_people_header:
+            people_header.blockSignals(True)
+            restored = people_header.restoreState(saved_people_header)
+            if not restored:
+                people_header.restoreState(people_default_state)
+            people_header.blockSignals(False)
 
         def save_people_header(*_args) -> None:
-            window.settings.setValue("planning/people_header_state", people_header.saveState())
+            window.settings.setValue(people_settings_key, people_header.saveState())
 
+        def reset_people_header() -> None:
+            people_header.blockSignals(True)
+            try:
+                people_header.restoreState(people_default_state)
+                # Restore the factory visual order explicitly so the reset is
+                # deterministic even if restoreState alone does not reorder the
+                # sections after a user moveSection.
+                for logical in range(people_header.count()):
+                    visual = people_header.visualIndex(logical)
+                    if visual != logical:
+                        people_header.moveSection(visual, logical)
+            finally:
+                people_header.blockSignals(False)
+            # The save handlers must not persist the intermediate reset state.
+            window.settings.remove(people_settings_key)
+
+        people_header.sectionMoved.connect(save_people_header)
         people_header.sectionResized.connect(save_people_header)
         # Familiar desktop gesture: double-click a divider to fit that column.
         people_header.sectionDoubleClicked.connect(people.resizeColumnToContents)
+
+        planning_view_menu = None
+        for action in window.menuBar().actions():
+            menu = action.menu()
+            if isinstance(menu, QMenu) and menu.title() == "Вид":
+                planning_view_menu = menu
+                break
+        if planning_view_menu is None:
+            planning_view_menu = window.menuBar().addMenu("Вид")
+
+        reset_people_action = QAction("Сбросить колонки Планирования", window)
+        reset_people_action.triggered.connect(reset_people_header)
+        planning_view_menu.addAction(reset_people_action)
+
         window.planning_people_header = people_header
+        window.planning_people_default_header_state = people_default_state
+        window.reset_planning_columns = reset_people_header
+        window.reset_planning_columns_action = reset_people_action
 
     # ------------------------------------------------------------------
     # Summary: replace the rigid top-table + fixed HBox below it with nested

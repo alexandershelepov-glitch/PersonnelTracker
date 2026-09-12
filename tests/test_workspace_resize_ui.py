@@ -117,14 +117,63 @@ class WorkspaceResizeUiTests(unittest.TestCase):
             third.deleteLater()
             self.app.processEvents()
 
-    def test_planning_identity_columns_are_interactive_and_persist(self):
-        header = self.window.planning_people_table.horizontalHeader()
+    def test_planning_identity_columns_are_movable_persistent_and_resettable(self):
+        table = self.window.planning_people_table
+        header = self.window.planning_people_header
+
+        # A. Factory state: movable, logical order 0/1/2, Interactive, defaults.
+        self.assertTrue(header.sectionsMovable())
+        self.assertEqual([header.visualIndex(i) for i in range(3)], [0, 1, 2])
         for column in range(3):
             self.assertEqual(header.sectionResizeMode(column), QHeaderView.Interactive)
+        self.assertEqual([table.columnWidth(i) for i in range(3)], [200, 165, 125])
 
-        self.window.planning_people_table.setColumnWidth(0, 245)
+        # B. User change: reorder and resize, state is saved.
+        header.moveSection(0, 2)
+        table.setColumnWidth(1, 210)
         self.app.processEvents()
+        self.assertEqual(header.visualIndex(0), 2)
         self.assertIsNotNone(self.window.settings.value("planning/people_header_state"))
+
+        # C. A new window with the same settings restores order and width.
+        second = self._open_new_window()
+        try:
+            self.assertEqual(second.planning_people_header.visualIndex(0), 2)
+            self.assertEqual(second.planning_people_table.columnWidth(1), 210)
+        finally:
+            second.close()
+            second.deleteLater()
+            self.app.processEvents()
+
+        # D. Reset restores the factory order/widths and drops the saved key.
+        resetter = self._open_new_window()
+        try:
+            resetter.reset_planning_columns_action.trigger()
+            self.app.processEvents()
+            reset_header = resetter.planning_people_header
+            reset_table = resetter.planning_people_table
+            self.assertEqual([reset_header.visualIndex(i) for i in range(3)], [0, 1, 2])
+            self.assertEqual([reset_table.columnWidth(i) for i in range(3)], [200, 165, 125])
+            self.assertIsNone(resetter.settings.value("planning/people_header_state"))
+        finally:
+            resetter.close()
+            resetter.deleteLater()
+            self.app.processEvents()
+
+        # E. The next start after reset opens factory-default, not the old layout.
+        third = self._open_new_window()
+        try:
+            self.assertEqual([third.planning_people_header.visualIndex(i) for i in range(3)], [0, 1, 2])
+            self.assertEqual(third.planning_people_table.columnWidth(0), 200)
+        finally:
+            third.close()
+            third.deleteLater()
+            self.app.processEvents()
+
+    def test_planning_calendar_columns_are_not_user_movable(self):
+        days_header = self.window.planning_days_table.horizontalHeader()
+        self.assertFalse(days_header.sectionsMovable())
+        self.assertEqual(days_header.sectionResizeMode(0), QHeaderView.Fixed)
 
     def test_summary_workspaces_use_saved_splitters(self):
         vertical = self.window.summary_vertical_splitter
