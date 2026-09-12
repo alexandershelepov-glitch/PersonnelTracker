@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QDate, QSettings
 from PySide6.QtWidgets import QApplication, QLabel
 
 from assignment_history_compat import install_assignment_history_features
@@ -190,6 +190,15 @@ class FinalAuditPolishTests(unittest.TestCase):
         self.assertEqual(manual.item(0, 2).toolTip(), manual.item(0, 2).text())
 
     def test_semi_auto_event_reuses_batch_dialog_and_selected_date(self):
+        # The fixture gives every employee a 5/2 schedule. Keep this test
+        # independent of the weekday on which the suite happens to run: the
+        # default semi-auto rules intentionally exclude schedule days off.
+        chosen = QDate.currentDate()
+        while chosen.dayOfWeek() > 5:
+            chosen = chosen.addDays(1)
+        self.window.semi_auto_team_date.setDate(chosen)
+        self.app.processEvents()
+
         self.window.propose_semi_auto_team()
         selected = self.window.semi_auto_team_selected_ids()
         self.assertEqual(len(selected), 2)
@@ -198,7 +207,6 @@ class FinalAuditPolishTests(unittest.TestCase):
             dialog.exec.return_value = 0
             self.window.create_semi_auto_team_event()
             editor.assert_called_once_with(self.window.service, self.window, preselected=selected)
-            chosen = self.window.semi_auto_team_date.date()
             dialog.start.setDate.assert_called_once_with(chosen)
             dialog.end.setDate.assert_called_once_with(chosen)
 
