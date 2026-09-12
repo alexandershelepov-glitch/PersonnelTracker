@@ -8,6 +8,7 @@ from unittest.mock import patch
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QApplication, QHeaderView
 
+from composition_ui import install_composition_ui
 from planning_ui import install_planning_ui
 from ui import MainWindow
 from workspace_resize_ui import install_workspace_resize_ui
@@ -24,6 +25,7 @@ class WorkspaceResizeUiTests(unittest.TestCase):
         self.settings_patch = patch("ui.QSettings", return_value=self.settings)
         self.settings_patch.start()
         self.window = MainWindow(Path(self.tmp.name) / "personnel.db")
+        install_composition_ui(self.window)
         install_planning_ui(self.window)
         summary_root = self.window.summary_table.parentWidget().layout()
         self.summary_root = summary_root
@@ -41,6 +43,26 @@ class WorkspaceResizeUiTests(unittest.TestCase):
         self.window.close()
         self.settings_patch.stop()
         self.tmp.cleanup()
+
+    def test_directory_columns_are_movable_persistent_and_resettable(self):
+        table = self.window.composition_directory_table
+        header = self.window.directory_header
+        self.assertTrue(header.sectionsMovable())
+        self.assertTrue(table.isColumnHidden(6))
+        for column in range(6):
+            self.assertEqual(header.sectionResizeMode(column), QHeaderView.Interactive)
+
+        header.moveSection(0, 2)
+        table.setColumnWidth(1, 260)
+        self.app.processEvents()
+        self.assertEqual(header.visualIndex(0), 2)
+        self.assertIsNotNone(self.window.settings.value("workspace/directory_header_state"))
+
+        self.window.reset_directory_columns_action.trigger()
+        self.app.processEvents()
+        self.assertEqual(header.visualIndex(0), 0)
+        self.assertEqual(table.columnWidth(0), 220)
+        self.assertIsNone(self.window.settings.value("workspace/directory_header_state"))
 
     def test_planning_identity_columns_are_interactive_and_persist(self):
         header = self.window.planning_people_table.horizontalHeader()
