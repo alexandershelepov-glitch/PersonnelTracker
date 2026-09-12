@@ -35,7 +35,10 @@ def install_modern_chrome_ui(window: Any) -> None:
 
     visible_nav: list[QPushButton] = []
     for button in getattr(window, "nav_buttons", []):
-        if button.text() in icon_kinds:
+        label = button.text()
+        if label in icon_kinds:
+            button.setProperty("modernNavLabel", label)
+            button.setProperty("modernNavKind", icon_kinds[label])
             button.setIconSize(QSize(18, 18))
             button.setMinimumHeight(40)
             visible_nav.append(button)
@@ -115,8 +118,9 @@ def install_modern_chrome_ui(window: Any) -> None:
         )
 
         for button in visible_nav:
-            kind = icon_kinds[button.text()]
-            button.setIcon(line_icon(kind, accent if button.isChecked() else secondary, 20))
+            kind = button.property("modernNavKind")
+            if kind:
+                button.setIcon(line_icon(str(kind), accent if button.isChecked() else secondary, 20))
 
         if search_action is not None:
             search_action.setIcon(line_icon("search", secondary, 18))
