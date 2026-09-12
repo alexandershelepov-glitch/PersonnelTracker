@@ -1,7 +1,8 @@
-"""Resizable workspace polish for PersonnelTracker v0.8.3.
+"""Resizable workspace polish for PersonnelTracker.
 
 Presentation only:
 - Directory keeps filters compact and gives remaining height to its data/empty area.
+- Directory columns are movable/resizable and persist their layout locally.
 - Planning employee columns become user-resizable and persist their widths.
 - Summary work areas use nested splitters so the user controls vertical and
   horizontal proportions without changing personnel/business data.
@@ -13,7 +14,8 @@ from typing import Any
 
 def install_workspace_resize_ui(window: Any) -> None:
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QHeaderView, QSplitter, QVBoxLayout, QWidget
+    from PySide6.QtGui import QAction
+    from PySide6.QtWidgets import QHeaderView, QMenu, QSplitter, QVBoxLayout, QWidget
 
     if getattr(window, "_workspace_resize_ui_installed", False):
         return
@@ -34,6 +36,65 @@ def install_workspace_resize_ui(window: Any) -> None:
             directory_layout.setStretchFactor(directory_table, 1)
         if directory_empty is not None:
             directory_layout.setStretchFactor(directory_empty, 1)
+
+    # v1.1 starts with one high-value table rather than making every grid
+    # configurable at once. QHeaderView already serializes visual order, widths
+    # and hidden sections, so keep the preference local in QSettings and leave
+    # personnel/database records untouched.
+    if directory_table is not None:
+        header = directory_table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionsMovable(True)
+        header.setMinimumSectionSize(72)
+
+        defaults = (220, 180, 110, 145, 240, 105)
+        for column in range(directory_table.columnCount()):
+            if directory_table.isColumnHidden(column):
+                continue
+            header.setSectionResizeMode(column, QHeaderView.Interactive)
+            if column < len(defaults):
+                directory_table.setColumnWidth(column, defaults[column])
+
+        default_state = header.saveState()
+        settings_key = "workspace/directory_header_state"
+        saved_header = window.settings.value(settings_key)
+        if saved_header:
+            header.blockSignals(True)
+            restored = header.restoreState(saved_header)
+            if not restored:
+                header.restoreState(default_state)
+            header.blockSignals(False)
+
+        def save_directory_header(*_args) -> None:
+            window.settings.setValue(settings_key, header.saveState())
+
+        def reset_directory_header() -> None:
+            header.blockSignals(True)
+            header.restoreState(default_state)
+            header.blockSignals(False)
+            window.settings.remove(settings_key)
+
+        header.sectionMoved.connect(save_directory_header)
+        header.sectionResized.connect(save_directory_header)
+        header.sectionDoubleClicked.connect(directory_table.resizeColumnToContents)
+
+        view_menu = None
+        for action in window.menuBar().actions():
+            menu = action.menu()
+            if isinstance(menu, QMenu) and menu.title() == "Вид":
+                view_menu = menu
+                break
+        if view_menu is None:
+            view_menu = window.menuBar().addMenu("Вид")
+
+        reset_directory_action = QAction("Сбросить колонки справочника", window)
+        reset_directory_action.triggered.connect(reset_directory_header)
+        view_menu.addAction(reset_directory_action)
+
+        window.directory_header = header
+        window.directory_default_header_state = default_state
+        window.reset_directory_columns = reset_directory_header
+        window.reset_directory_columns_action = reset_directory_action
 
     # ------------------------------------------------------------------
     # Planning: keep the outer splitter, but let the user control the three
