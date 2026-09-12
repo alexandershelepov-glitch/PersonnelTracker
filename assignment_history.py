@@ -281,7 +281,7 @@ def install_assignment_history_features(window: Any) -> None:
             self.table.setRowCount(len(rows))
             for row_index, row in enumerate(rows):
                 source = {
-                    "baseline": "Начальное состояние v0.8",
+                    "baseline": "Начальное состояние",
                     "unit-change": "Изменение ШЕ",
                     "assignment": "Назначение",
                 }.get(row['source'], row['source'])
@@ -320,7 +320,7 @@ def install_assignment_history_features(window: Any) -> None:
             root.addLayout(controls)
             hint = QLabel(
                 "Срез показывает назначение работников на конец выбранного дня. "
-                "История до начала учёта v0.8 намеренно не восстанавливается задним числом."
+                "История до начала ведения учёта намеренно не восстанавливается задним числом."
             )
             hint.setWordWrap(True)
             root.addWidget(hint)
