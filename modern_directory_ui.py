@@ -144,6 +144,7 @@ def install_modern_directory_ui(window: Any) -> None:
         actions.setSpacing(8)
         selected_label.setObjectName("directorySelection")
         copy_mode.setObjectName("directoryCopyMode")
+        copy_button.setObjectName("directoryCopyButton")
         open_button.setObjectName("directoryOpenButton")
         actions.addWidget(selected_label)
         actions.addStretch()
@@ -151,6 +152,15 @@ def install_modern_directory_ui(window: Any) -> None:
         actions.addWidget(copy_button)
         actions.addWidget(open_button)
         root.insertWidget(max(0, root.indexOf(empty_state)), actions_frame)
+
+        # Expose the existing widgets/layout so v1.1 preferences can rearrange
+        # them without searching by translated button text or rebuilding them.
+        window.directory_actions_frame = actions_frame
+        window.directory_actions_layout = actions
+        window.directory_selection_label = selected_label
+        window.directory_copy_mode = copy_mode
+        window.directory_copy_button = copy_button
+        window.directory_open_button = open_button
 
     empty_state.setText("Сотрудники не найдены\nДобавьте работников или измените фильтры")
     empty_state.setObjectName("directoryEmptyState")
