@@ -8,261 +8,22 @@ from __future__ import annotations
 from typing import Any
 
 
-def _install_directory_action_panel(window: Any) -> None:
-    """Pilot v1.1 preference for the Directory action panel.
+def _view_menu(window: Any):
+    from PySide6.QtWidgets import QMenu
 
-    Only the existing widgets are rearranged inside the existing QHBoxLayout:
-    no button is recreated and no signal is reconnected.  The selection counter
-    stays pinned on the left; only the user-configurable actions are ordered
-    and hidden.  ``copy`` is one logical element: the mode combo and the
-    "Копировать" button always move and hide together.
-    """
-    import json
-
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QAction
-    from PySide6.QtWidgets import (
-        QAbstractItemView,
-        QDialog,
-        QHBoxLayout,
-        QLabel,
-        QListWidget,
-        QListWidgetItem,
-        QMenu,
-        QPushButton,
-        QVBoxLayout,
-    )
-
-    panel_copy_mode = getattr(window, "directory_copy_mode", None)
-    panel_copy_button = getattr(window, "directory_copy_button", None)
-    panel_open_button = getattr(window, "directory_open_button", None)
-    panel_layout = getattr(window, "directory_actions_layout", None)
-    panel_selection_label = getattr(window, "directory_selection_label", None)
-
-    if (
-        panel_copy_mode is None
-        or panel_copy_button is None
-        or panel_open_button is None
-        or panel_layout is None
-        or panel_selection_label is None
-    ):
-        # The modern Directory action panel is not installed in this host.
-        return
-
-    settings_key = "workspace/directory_action_panel"
-    default_order = ("copy", "open")
-    element_labels = {"copy": "Копирование", "open": "Открыть карточку"}
-    element_widgets = {
-        "copy": (panel_copy_mode, panel_copy_button),
-        "open": (panel_open_button,),
-    }
-
-    def factory_state() -> tuple[list[str], list[str]]:
-        return list(default_order), []
-
-    def parse_state(raw: Any):
-        """Return validated (order, hidden) or None when the value is unusable."""
-        if isinstance(raw, dict):
-            data = raw
-        else:
-            text = "" if raw is None else str(raw).strip()
-            if not text:
-                return None
-            try:
-                data = json.loads(text)
-            except (TypeError, ValueError):
-                return None
-        if not isinstance(data, dict):
-            return None
-        order = data.get("order")
-        hidden = data.get("hidden", [])
-        if not isinstance(order, list) or not isinstance(hidden, list):
-            return None
-        # Exactly the known ids, once each, and only known hidden ids.
-        if len(order) != len(default_order) or set(order) != set(default_order):
-            return None
-        if len(hidden) != len(set(hidden)) or any(entry not in element_labels for entry in hidden):
-            return None
-        return [str(entry) for entry in order], [str(entry) for entry in hidden]
-
-    def current_state() -> tuple[list[str], list[str]]:
-        raw = window.settings.value(settings_key)
-        parsed = parse_state(raw) if raw is not None else None
-        return parsed if parsed is not None else factory_state()
-
-    def apply_state(order, hidden) -> None:
-        # Detach only the configurable actions; the counter label and the
-        # stretch item between it and the actions stay in place.
-        for element_id in default_order:
-            for widget in element_widgets[element_id]:
-                panel_layout.removeWidget(widget)
-        position = panel_layout.count()
-        for element_id in order:
-            visible = element_id not in hidden
-            for widget in element_widgets[element_id]:
-                widget.setVisible(visible)
-                panel_layout.insertWidget(position, widget)
-                position += 1
-
-    def save_state(order, hidden) -> None:
-        window.settings.setValue(
-            settings_key,
-            json.dumps({"order": list(order), "hidden": list(hidden)}, ensure_ascii=False),
-        )
-
-    def reset_panel() -> None:
-        order, hidden = factory_state()
-        apply_state(order, hidden)
-        window.settings.remove(settings_key)
-
-    # Apply the saved (or factory) layout at startup.
-    apply_state(*current_state())
-
-    class DirectoryActionPanelDialog(QDialog):
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            self.setWindowTitle("Настройка панели действий Справочника")
-            # Compact pilot dialog: two rows plus a short hint.  A reasonable
-            # initial/minimum size keeps it usable without a fixed geometry.
-            self.resize(420, 220)
-            self.setMinimumSize(360, 200)
-
-            palette = window.theme_manager.palette()
-            self.setStyleSheet(
-                f"""
-                QLabel#secondaryText {{
-                    color: {palette['text_secondary']};
-                }}
-                QListWidget {{
-                    background: {palette['panel_bg']};
-                    color: {palette['text']};
-                    border: 1px solid {palette['border']};
-                    border-radius: 8px;
-                    padding: 4px;
-                    outline: none;
-                }}
-                QListWidget::item {{
-                    color: {palette['text']};
-                    padding: 7px 6px;
-                    border-radius: 6px;
-                }}
-                QListWidget::item:hover {{
-                    background: {palette['hover']};
-                    color: {palette['text']};
-                }}
-                QListWidget::item:selected {{
-                    background: {palette['selected']};
-                    color: {palette['selected_text']};
-                }}
-                """
-            )
-
-            root = QVBoxLayout(self)
-            hint = QLabel(
-                "Перетащите пункты, чтобы изменить порядок. "
-                "Снимите флажок, чтобы скрыть действие."
-            )
-            hint.setObjectName("secondaryText")
-            hint.setWordWrap(True)
-            root.addWidget(hint)
-
-            self.list = QListWidget()
-            self.list.setSelectionMode(QAbstractItemView.SingleSelection)
-            self.list.setDragDropMode(QAbstractItemView.InternalMove)
-            self.list.setDefaultDropAction(Qt.MoveAction)
-            self.list.setMinimumHeight(72)
-            root.addWidget(self.list, 1)
-            self.populate(*current_state())
-
-            buttons = QHBoxLayout()
-            defaults_button = QPushButton("По умолчанию")
-            cancel_button = QPushButton("Отмена")
-            save_button = QPushButton("Сохранить")
-            save_button.setProperty("role", "primary")
-            defaults_button.clicked.connect(self.restore_defaults)
-            cancel_button.clicked.connect(self.reject)
-            save_button.clicked.connect(self.save)
-            buttons.addWidget(defaults_button)
-            buttons.addStretch()
-            buttons.addWidget(cancel_button)
-            buttons.addWidget(save_button)
-            root.addLayout(buttons)
-
-        def populate(self, order, hidden) -> None:
-            self.list.clear()
-            for element_id in order:
-                item = QListWidgetItem(element_labels[element_id])
-                item.setData(Qt.UserRole, element_id)
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Unchecked if element_id in hidden else Qt.Checked)
-                self.list.addItem(item)
-
-        def restore_defaults(self) -> None:
-            self.populate(*factory_state())
-
-        def state(self) -> tuple[list[str], list[str]]:
-            order: list[str] = []
-            hidden: list[str] = []
-            for row in range(self.list.count()):
-                item = self.list.item(row)
-                element_id = item.data(Qt.UserRole)
-                order.append(element_id)
-                if item.checkState() != Qt.Checked:
-                    hidden.append(element_id)
-            return order, hidden
-
-        def save(self) -> None:
-            order, hidden = self.state()
-            apply_state(order, hidden)
-            save_state(order, hidden)
-            self.accept()
-
-    def open_panel_dialog() -> None:
-        DirectoryActionPanelDialog(window).exec()
-
-    view_menu = None
     for menu_action in window.menuBar().actions():
         menu = menu_action.menu()
         if isinstance(menu, QMenu) and menu.title() == "Вид":
-            view_menu = menu
-            break
-    if view_menu is None:
-        view_menu = window.menuBar().addMenu("Вид")
-
-    configure_action = QAction("Настроить панель действий Справочника…", window)
-    configure_action.triggered.connect(open_panel_dialog)
-    view_menu.addAction(configure_action)
-
-    reset_action = QAction("Сбросить панель действий Справочника", window)
-    reset_action.triggered.connect(reset_panel)
-    view_menu.addAction(reset_action)
-
-    window.directory_action_panel_widgets = element_widgets
-    window.directory_action_panel_default_order = tuple(default_order)
-    window.directory_action_panel_apply = apply_state
-    window.directory_action_panel_save = save_state
-    window.directory_action_panel_current_state = current_state
-    window.directory_action_panel_parse_state = parse_state
-    window.directory_action_panel_dialog_type = DirectoryActionPanelDialog
-    window.open_directory_action_panel = open_panel_dialog
-    window.reset_directory_action_panel = reset_panel
-    window.reset_directory_action_panel_action = reset_action
+            return menu
+    return window.menuBar().addMenu("Вид")
 
 
-def install_custom_workspace_ui(window: Any) -> None:
-    """Enable persistent SHDS column order without replacing legacy widths."""
+def _install_shds_columns(window: Any) -> None:
+    """Keep the existing v1.1 movable/persistent SHDS column behaviour."""
     from PySide6.QtGui import QAction
-    from PySide6.QtWidgets import QMenu
-
-    if getattr(window, "_custom_workspace_ui_installed", False):
-        return
 
     table = getattr(window, "staff_table", None)
     if table is None:
-        # SHDS may be absent in some hosts; the Directory action panel is an
-        # independent v1.1 preference and must still be installed.
-        _install_directory_action_panel(window)
-        window._custom_workspace_ui_installed = True
         return
 
     shds_header = table.horizontalHeader()
@@ -275,9 +36,6 @@ def install_custom_workspace_ui(window: Any) -> None:
     def apply_shds_defaults() -> None:
         previous_block = shds_header.blockSignals(True)
         try:
-            # moveSection() works with visual indexes. Resolve the current visual
-            # index on every iteration so reset remains deterministic after any
-            # user order.
             for logical in range(shds_header.count()):
                 visual = shds_header.visualIndex(logical)
                 if visual >= 0 and visual != logical:
@@ -302,8 +60,8 @@ def install_custom_workspace_ui(window: Any) -> None:
         if not restored:
             apply_shds_defaults()
         else:
-            # Columns already hidden by the application are implementation
-            # details and must not reappear because of stale saved state.
+            # Application-hidden columns are implementation details and must
+            # not reappear because of stale saved state.
             for column, hidden in enumerate(default_hidden):
                 if hidden and column < table.columnCount():
                     table.setColumnHidden(column, True)
@@ -318,18 +76,9 @@ def install_custom_workspace_ui(window: Any) -> None:
     shds_header.sectionMoved.connect(save_shds_header)
     shds_header.sectionResized.connect(save_shds_header)
 
-    view_menu = None
-    for menu_action in window.menuBar().actions():
-        menu = menu_action.menu()
-        if isinstance(menu, QMenu) and menu.title() == "Вид":
-            view_menu = menu
-            break
-    if view_menu is None:
-        view_menu = window.menuBar().addMenu("Вид")
-
     reset_action = QAction("Сбросить колонки ШДС", window)
     reset_action.triggered.connect(reset_shds_header)
-    view_menu.addAction(reset_action)
+    _view_menu(window).addAction(reset_action)
 
     window.shds_custom_header = shds_header
     window.shds_default_widths = default_widths
@@ -337,5 +86,136 @@ def install_custom_workspace_ui(window: Any) -> None:
     window.reset_shds_columns = reset_shds_header
     window.reset_shds_columns_action = reset_action
 
-    _install_directory_action_panel(window)
+
+def _install_composition_tab_order(window: Any) -> None:
+    """Make Composition tabs directly draggable and persist their order."""
+    import json
+
+    from PySide6.QtGui import QAction
+
+    tabs = getattr(window, "composition_tabs", None)
+    directory = getattr(window, "composition_directory", None)
+    team = getattr(window, "composition_team_tab", None)
+    if tabs is None or directory is None or team is None or tabs.count() < 3:
+        return
+
+    # SHDS is the remaining Composition page. Identify it by widget identity,
+    # not by translated tab text, so saved preferences stay stable if labels
+    # change later.
+    shds = next(
+        (
+            tabs.widget(index)
+            for index in range(tabs.count())
+            if tabs.widget(index) is not directory and tabs.widget(index) is not team
+        ),
+        None,
+    )
+    if shds is None:
+        return
+
+    settings_key = "workspace/composition_tab_order"
+    prototype_key = "workspace/directory_action_panel"
+    default_order = ("directory", "team", "shds")
+    id_to_widget = {
+        "directory": directory,
+        "team": team,
+        "shds": shds,
+    }
+    widget_to_id = {id(widget): tab_id for tab_id, widget in id_to_widget.items()}
+
+    # Remove the superseded pilot preference. It was never personnel data and
+    # must not influence the new direct-manipulation workspace behaviour.
+    window.settings.remove(prototype_key)
+
+    def parse_order(raw: Any) -> list[str] | None:
+        if raw is None:
+            return None
+        try:
+            data = raw if isinstance(raw, list) else json.loads(str(raw))
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(data, list):
+            return None
+        order = [str(value) for value in data]
+        if len(order) != len(default_order) or len(set(order)) != len(default_order):
+            return None
+        if set(order) != set(default_order):
+            return None
+        return order
+
+    def current_order() -> list[str]:
+        order: list[str] = []
+        for index in range(tabs.count()):
+            tab_id = widget_to_id.get(id(tabs.widget(index)))
+            if tab_id is not None:
+                order.append(tab_id)
+        return order
+
+    def apply_order(order: list[str] | tuple[str, ...]) -> None:
+        current_widget = tabs.currentWidget()
+        tab_bar = tabs.tabBar()
+        previous_block = tab_bar.blockSignals(True)
+        try:
+            for target_index, tab_id in enumerate(order):
+                widget = id_to_widget[tab_id]
+                current_index = tabs.indexOf(widget)
+                if current_index >= 0 and current_index != target_index:
+                    tab_bar.moveTab(current_index, target_index)
+            if current_widget is not None:
+                tabs.setCurrentWidget(current_widget)
+        finally:
+            tab_bar.blockSignals(previous_block)
+
+    saved_order = parse_order(window.settings.value(settings_key))
+    if saved_order is not None:
+        apply_order(saved_order)
+    elif window.settings.contains(settings_key):
+        # Corrupt/stale local UI state must never prevent startup.
+        window.settings.remove(settings_key)
+        apply_order(default_order)
+
+    tabs.setMovable(True)
+
+    def save_order(*_args) -> None:
+        order = current_order()
+        if len(order) == len(default_order):
+            window.settings.setValue(settings_key, json.dumps(order, ensure_ascii=False))
+
+    tabs.tabBar().tabMoved.connect(save_order)
+
+    def reset_tab_order() -> None:
+        apply_order(default_order)
+        window.settings.remove(settings_key)
+
+    reset_action = QAction("Сбросить порядок вкладок Состава", window)
+    reset_action.triggered.connect(reset_tab_order)
+    _view_menu(window).addAction(reset_action)
+
+    # composition_ui.py predates movable tabs and its quick navigation uses
+    # factory indexes 0/1. Add final identity-based selectors so those entry
+    # points keep opening the intended page after the user reorders tabs.
+    composition_button = window.nav_group.button(0)
+    if composition_button is not None:
+        composition_button.clicked.connect(
+            lambda _checked=False: tabs.setCurrentWidget(directory)
+        )
+
+    if hasattr(window, "today_page") and hasattr(window.today_page, "team"):
+        window.today_page.team.clicked.connect(lambda: tabs.setCurrentWidget(team))
+
+    window.composition_tab_default_order = tuple(default_order)
+    window.composition_tab_current_order = current_order
+    window.composition_tab_apply_order = apply_order
+    window.composition_tab_parse_order = parse_order
+    window.reset_composition_tab_order = reset_tab_order
+    window.reset_composition_tab_order_action = reset_action
+
+
+def install_custom_workspace_ui(window: Any) -> None:
+    """Install the final v1.1 workspace preferences."""
+    if getattr(window, "_custom_workspace_ui_installed", False):
+        return
+
+    _install_shds_columns(window)
+    _install_composition_tab_order(window)
     window._custom_workspace_ui_installed = True
