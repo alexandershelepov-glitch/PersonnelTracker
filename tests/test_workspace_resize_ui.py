@@ -175,6 +175,95 @@ class WorkspaceResizeUiTests(unittest.TestCase):
         self.assertFalse(days_header.sectionsMovable())
         self.assertEqual(days_header.sectionResizeMode(0), QHeaderView.Fixed)
 
+    def test_planning_list_columns_are_movable_persistent_and_resettable(self):
+        table = self.window.planning_list_table
+        header = self.window.planning_list_header
+        factory_widths = tuple(self.window.planning_list_default_widths)
+
+        # A. Factory state: movable, logical order 0..7, Interactive, ID hidden.
+        self.assertTrue(header.sectionsMovable())
+        for logical in range(8):
+            self.assertEqual(header.visualIndex(logical), logical)
+            self.assertEqual(header.sectionResizeMode(logical), QHeaderView.Interactive)
+        self.assertTrue(table.isColumnHidden(8))
+        self.assertEqual(tuple(table.columnWidth(i) for i in range(8)), factory_widths)
+
+        # B. User layout: reorder and resize, state is saved.
+        header.moveSection(0, 3)
+        table.setColumnWidth(2, 140)
+        self.app.processEvents()
+        self.assertEqual(header.visualIndex(0), 3)
+        self.assertIsNotNone(self.window.settings.value("planning/list_header_state"))
+
+        # C. A new window with the same settings restores order/width, ID hidden.
+        second = self._open_new_window()
+        try:
+            self.assertEqual(second.planning_list_header.visualIndex(0), 3)
+            self.assertEqual(second.planning_list_table.columnWidth(2), 140)
+            self.assertTrue(second.planning_list_table.isColumnHidden(8))
+        finally:
+            second.close()
+            second.deleteLater()
+            self.app.processEvents()
+
+        # D. Reset restores factory order/widths, keeps ID hidden, drops the key.
+        resetter = self._open_new_window()
+        try:
+            resetter.reset_planning_list_columns_action.trigger()
+            self.app.processEvents()
+            reset_header = resetter.planning_list_header
+            reset_table = resetter.planning_list_table
+            for logical in range(8):
+                self.assertEqual(reset_header.visualIndex(logical), logical)
+            self.assertEqual(tuple(reset_table.columnWidth(i) for i in range(8)), factory_widths)
+            self.assertTrue(reset_table.isColumnHidden(8))
+            self.assertIsNone(resetter.settings.value("planning/list_header_state"))
+        finally:
+            resetter.close()
+            resetter.deleteLater()
+            self.app.processEvents()
+
+        # E. The next start after reset opens factory layout, not the old one.
+        third = self._open_new_window()
+        try:
+            third_header = third.planning_list_header
+            third_table = third.planning_list_table
+            for logical in range(8):
+                self.assertEqual(third_header.visualIndex(logical), logical)
+            self.assertEqual(tuple(third_table.columnWidth(i) for i in range(8)), factory_widths)
+            self.assertTrue(third_table.isColumnHidden(8))
+        finally:
+            third.close()
+            third.deleteLater()
+            self.app.processEvents()
+
+    def test_planning_list_id_column_stays_hidden_with_stale_saved_state(self):
+        table = self.window.planning_list_table
+        header = self.window.planning_list_header
+        # Simulate a stale saved state that still has the technical ID visible.
+        table.setColumnHidden(8, False)
+        self.window.settings.setValue("planning/list_header_state", header.saveState())
+
+        other = self._open_new_window()
+        try:
+            self.assertTrue(other.planning_list_table.isColumnHidden(8))
+        finally:
+            other.close()
+            other.deleteLater()
+            self.app.processEvents()
+
+    def test_planning_list_customization_keeps_other_planning_tables_intact(self):
+        # Calendar days stay chronological and non-movable.
+        self.assertFalse(self.window.planning_days_table.horizontalHeader().sectionsMovable())
+        # The employee identity columns keep their own layout.
+        people_header = self.window.planning_people_header
+        self.assertTrue(people_header.sectionsMovable())
+        self.assertEqual([people_header.visualIndex(i) for i in range(3)], [0, 1, 2])
+        self.assertEqual(
+            [self.window.planning_people_table.columnWidth(i) for i in range(3)],
+            [200, 165, 125],
+        )
+
     def test_summary_workspaces_use_saved_splitters(self):
         vertical = self.window.summary_vertical_splitter
         horizontal = self.window.summary_horizontal_splitter

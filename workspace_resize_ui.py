@@ -4,6 +4,7 @@ Presentation only:
 - Directory keeps filters compact and gives remaining height to its data/empty area.
 - Directory columns are movable/resizable and persist their layout locally.
 - Planning employee columns are movable/resizable and persist their layout.
+- Planning event-list columns are movable/resizable and persist their layout.
 - Summary work areas use nested splitters so the user controls vertical and
   horizontal proportions without changing personnel/business data.
 """
@@ -181,6 +182,97 @@ def install_workspace_resize_ui(window: Any) -> None:
         window.planning_people_default_header_state = people_default_state
         window.reset_planning_columns = reset_people_header
         window.reset_planning_columns_action = reset_people_action
+
+    # ------------------------------------------------------------------
+    # Planning -> Список: the event list gets the same movable/resizable
+    # treatment.  Column 8 ("ID") is an implementation detail: it is hidden by
+    # planning_ui.py and must never become visible, not even from stale saved
+    # state.  QHeaderView serializes visual order, widths and hidden sections,
+    # so the preference stays local in QSettings and no personnel data changes.
+    # ------------------------------------------------------------------
+    planning_list = getattr(window, "planning_list_table", None)
+    if planning_list is not None:
+        planning_list_header = planning_list.horizontalHeader()
+        planning_list_header.setStretchLastSection(False)
+        planning_list_header.setSectionsMovable(True)
+        planning_list_header.setMinimumSectionSize(72)
+
+        # Factory widths follow the current content-driven UI: FIO and
+        # "Примечание" were the two stretch columns, the rest were sized to
+        # dates and typical event text.  They are frozen here so reset is
+        # predictable; the column set/meaning is unchanged.
+        planning_list_defaults = (200, 130, 90, 90, 90, 150, 140, 180)
+        for column in range(planning_list.columnCount()):
+            planning_list_header.setSectionResizeMode(column, QHeaderView.Interactive)
+        for column, width in enumerate(planning_list_defaults):
+            if column < planning_list.columnCount():
+                planning_list.setColumnWidth(column, width)
+        planning_list.setColumnHidden(8, True)
+        planning_list_default_state = planning_list_header.saveState()
+        planning_list_settings_key = "planning/list_header_state"
+
+        def apply_planning_list_defaults() -> None:
+            planning_list_header.blockSignals(True)
+            try:
+                planning_list_header.restoreState(planning_list_default_state)
+                # MoveSection() works with visual indexes.  Resolve the current
+                # visual index on every iteration so reset is deterministic
+                # after any user order.
+                for logical in range(planning_list_header.count()):
+                    visual = planning_list_header.visualIndex(logical)
+                    if visual >= 0 and visual != logical:
+                        planning_list_header.moveSection(visual, logical)
+                for column, width in enumerate(planning_list_defaults):
+                    if column < planning_list.columnCount():
+                        planning_list.setColumnWidth(column, width)
+                # The technical ID column stays hidden after every reset.
+                planning_list.setColumnHidden(8, True)
+            finally:
+                planning_list_header.blockSignals(False)
+
+        saved_planning_list_header = window.settings.value(planning_list_settings_key)
+        if saved_planning_list_header:
+            planning_list_header.blockSignals(True)
+            try:
+                restored = planning_list_header.restoreState(saved_planning_list_header)
+            finally:
+                planning_list_header.blockSignals(False)
+            if not restored:
+                apply_planning_list_defaults()
+            else:
+                # A stale/hand-edited saved state must not reveal the ID column.
+                planning_list.setColumnHidden(8, True)
+
+        def save_planning_list_header(*_args) -> None:
+            window.settings.setValue(planning_list_settings_key, planning_list_header.saveState())
+
+        def reset_planning_list_header() -> None:
+            apply_planning_list_defaults()
+            # The save handlers must not persist the intermediate reset state.
+            window.settings.remove(planning_list_settings_key)
+
+        planning_list_header.sectionMoved.connect(save_planning_list_header)
+        planning_list_header.sectionResized.connect(save_planning_list_header)
+        planning_list_header.sectionDoubleClicked.connect(planning_list.resizeColumnToContents)
+
+        planning_list_menu = None
+        for action in window.menuBar().actions():
+            menu = action.menu()
+            if isinstance(menu, QMenu) and menu.title() == "Вид":
+                planning_list_menu = menu
+                break
+        if planning_list_menu is None:
+            planning_list_menu = window.menuBar().addMenu("Вид")
+
+        reset_planning_list_action = QAction("Сбросить колонки списка Планирования", window)
+        reset_planning_list_action.triggered.connect(reset_planning_list_header)
+        planning_list_menu.addAction(reset_planning_list_action)
+
+        window.planning_list_header = planning_list_header
+        window.planning_list_default_widths = planning_list_defaults
+        window.planning_list_default_header_state = planning_list_default_state
+        window.reset_planning_list_columns = reset_planning_list_header
+        window.reset_planning_list_columns_action = reset_planning_list_action
 
     # ------------------------------------------------------------------
     # Summary: replace the rigid top-table + fixed HBox below it with nested
