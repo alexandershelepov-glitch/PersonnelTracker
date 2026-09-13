@@ -21,6 +21,23 @@ def install_workspace_resize_ui(window: Any) -> None:
     if getattr(window, "_workspace_resize_ui_installed", False):
         return
 
+    def reset_menu():
+        """Single grouped home for every configurable-workspace reset."""
+        menu = getattr(window, "view_reset_menu", None)
+        if isinstance(menu, QMenu):
+            return menu
+        view_menu = None
+        for menu_action in window.menuBar().actions():
+            candidate = menu_action.menu()
+            if isinstance(candidate, QMenu) and candidate.title() == "Вид":
+                view_menu = candidate
+                break
+        if view_menu is None:
+            view_menu = window.menuBar().addMenu("Вид")
+        menu = view_menu.addMenu("Сбросить настройки вида")
+        window.view_reset_menu = menu
+        return menu
+
     # ------------------------------------------------------------------
     # Directory: the table used to be the only stretchable item. When an
     # empty database hid that table, Qt distributed spare height among labels
@@ -92,18 +109,9 @@ def install_workspace_resize_ui(window: Any) -> None:
         header.sectionResized.connect(save_directory_header)
         header.sectionDoubleClicked.connect(directory_table.resizeColumnToContents)
 
-        view_menu = None
-        for action in window.menuBar().actions():
-            menu = action.menu()
-            if isinstance(menu, QMenu) and menu.title() == "Вид":
-                view_menu = menu
-                break
-        if view_menu is None:
-            view_menu = window.menuBar().addMenu("Вид")
-
         reset_directory_action = QAction("Сбросить колонки справочника", window)
         reset_directory_action.triggered.connect(reset_directory_header)
-        view_menu.addAction(reset_directory_action)
+        reset_menu().addAction(reset_directory_action)
 
         window.directory_header = header
         window.directory_default_header_state = default_state
@@ -165,18 +173,9 @@ def install_workspace_resize_ui(window: Any) -> None:
         # Familiar desktop gesture: double-click a divider to fit that column.
         people_header.sectionDoubleClicked.connect(people.resizeColumnToContents)
 
-        planning_view_menu = None
-        for action in window.menuBar().actions():
-            menu = action.menu()
-            if isinstance(menu, QMenu) and menu.title() == "Вид":
-                planning_view_menu = menu
-                break
-        if planning_view_menu is None:
-            planning_view_menu = window.menuBar().addMenu("Вид")
-
         reset_people_action = QAction("Сбросить колонки Планирования", window)
         reset_people_action.triggered.connect(reset_people_header)
-        planning_view_menu.addAction(reset_people_action)
+        reset_menu().addAction(reset_people_action)
 
         window.planning_people_header = people_header
         window.planning_people_default_header_state = people_default_state
@@ -255,18 +254,9 @@ def install_workspace_resize_ui(window: Any) -> None:
         planning_list_header.sectionResized.connect(save_planning_list_header)
         planning_list_header.sectionDoubleClicked.connect(planning_list.resizeColumnToContents)
 
-        planning_list_menu = None
-        for action in window.menuBar().actions():
-            menu = action.menu()
-            if isinstance(menu, QMenu) and menu.title() == "Вид":
-                planning_list_menu = menu
-                break
-        if planning_list_menu is None:
-            planning_list_menu = window.menuBar().addMenu("Вид")
-
         reset_planning_list_action = QAction("Сбросить колонки списка Планирования", window)
         reset_planning_list_action.triggered.connect(reset_planning_list_header)
-        planning_list_menu.addAction(reset_planning_list_action)
+        reset_menu().addAction(reset_planning_list_action)
 
         window.planning_list_header = planning_list_header
         window.planning_list_default_widths = planning_list_defaults

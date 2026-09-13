@@ -143,7 +143,10 @@ def install_interface_polish(window: Any) -> None:
             compact_table(table, 30, 36)
 
         # Keep the event type as a small semantic colour marker instead of
-        # colouring the whole row on the operational dashboard.
+        # colouring the whole row on the operational dashboard.  Column geometry
+        # is deliberately NOT set here: the v1.1 workspace layer owns Today
+        # table widths/order, and re-applying Stretch/ResizeToContents after
+        # every fill reset the user's layout.
         original_fill_absent = today._fill_absent
 
         def fill_absent(self, rows):
@@ -153,22 +156,8 @@ def install_interface_polish(window: Any) -> None:
                 if event_cell is not None and getattr(person, "event_id", None):
                     event_cell.setBackground(event_background(person.status, window.theme_manager))
                     event_cell.setForeground(event_foreground(person.status, window.theme_manager))
-            self.absent_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-            self.absent_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-            self.absent_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-            self.absent_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
 
         today._fill_absent = MethodType(fill_absent, today)
-
-        original_fill_shift = today._fill_shift
-
-        def fill_shift(self, rows):
-            original_fill_shift(rows)
-            self.shift_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-            self.shift_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-            self.shift_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-
-        today._fill_shift = MethodType(fill_shift, today)
 
         for frame in today.findChildren(type(today.attention_panel)):
             if frame.objectName() in {"todayMetric", "todaySection"}:
@@ -200,12 +189,13 @@ def install_interface_polish(window: Any) -> None:
         page_index = window.pages.currentIndex()
         if page_index == 0:
             tabs = getattr(window, "composition_tabs", None)
-            if tabs is not None and tabs.currentIndex() == 0:
+            current = tabs.currentWidget() if tabs is not None else None
+            if current is not None and current is getattr(window, "composition_directory", None):
                 return getattr(window, "composition_search", None)
             modes = getattr(window, "manual_team_mode_tabs", None)
             if (
-                tabs is not None
-                and tabs.currentIndex() == 1
+                current is not None
+                and current is getattr(window, "composition_team_tab", None)
                 and modes is not None
                 and modes.currentIndex() == 0
             ):

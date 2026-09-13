@@ -357,7 +357,8 @@ class TodayPage(QScrollArea):
         self.absent_table.empty_state_label.setText("На выбранную дату отсутствий нет")
         self.absent_table.empty_state_label.setVisible(not rows)
         self.absent_table.setVisible(bool(rows))
-        self.absent_table.resizeColumnsToContents()
+        # Column geometry is owned by the v1.1 workspace layer; filling data must
+        # never resize user-adjusted columns back to content width.
 
     def _fill_shift(self, rows):
         self.shift_table.setRowCount(len(rows))
@@ -374,7 +375,8 @@ class TodayPage(QScrollArea):
         self.shift_table.empty_state_label.setText("На выбранную дату работников на смене нет")
         self.shift_table.empty_state_label.setVisible(not rows)
         self.shift_table.setVisible(bool(rows))
-        self.shift_table.resizeColumnsToContents()
+        # Column geometry is owned by the v1.1 workspace layer; filling data must
+        # never resize user-adjusted columns back to content width.
 
     def _control_rows(self, target: date, kind: str) -> list[dict]:
         rows = []

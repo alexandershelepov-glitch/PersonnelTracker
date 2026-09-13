@@ -428,7 +428,8 @@ def install_manual_team_ui(window: Any) -> None:
 
         def open_from_today() -> None:
             team_date.setDate(window.today_page.selected_date)
-            tabs.setCurrentIndex(1)
+            # Identity, not a factory index: the user may have reordered tabs.
+            tabs.setCurrentWidget(team_tab)
             mode_tabs.setCurrentIndex(0)
             refresh_candidates()
             window._select_page(0)

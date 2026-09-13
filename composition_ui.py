@@ -448,9 +448,11 @@ def install_composition_ui(window: Any) -> None:
 
     # Entering Composition from the sidebar always means the ordinary
     # Directory. Contextual quick action from Today goes straight to Team.
+    # Both resolve their target by widget identity so a user-reordered tab bar
+    # can never send them to the wrong page.
     composition_button = window.nav_group.button(0)
     if composition_button is not None:
-        composition_button.clicked.connect(lambda _checked=False: tabs.setCurrentIndex(0))
+        composition_button.clicked.connect(lambda _checked=False: tabs.setCurrentWidget(directory))
 
     if hasattr(window, "today_page") and hasattr(window.today_page, "team"):
         try:
@@ -459,7 +461,7 @@ def install_composition_ui(window: Any) -> None:
             pass
 
         def open_team_from_today() -> None:
-            tabs.setCurrentIndex(1)
+            tabs.setCurrentWidget(team_tab)
             window._select_page(0)
 
         window.today_page.team.clicked.connect(open_team_from_today)

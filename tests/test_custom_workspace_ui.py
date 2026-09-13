@@ -240,6 +240,9 @@ class CompositionTabOrderUiTests(unittest.TestCase):
 
     def _open_window(self, name: str) -> MainWindow:
         window = MainWindow(Path(self.tmp.name) / name)
+        # Mirrors the application order: Today exists before Composition so the
+        # "Сформировать команду" quick action can be exercised.
+        install_workflow_ui(window)
         install_composition_ui(window)
         install_custom_workspace_ui(window)
         window.show()
@@ -250,7 +253,16 @@ class CompositionTabOrderUiTests(unittest.TestCase):
         for action in window.menuBar().actions():
             menu = action.menu()
             if isinstance(menu, QMenu) and menu.title() == "Вид":
-                return [item.text() for item in menu.actions()]
+                texts: list[str] = []
+
+                def collect(current) -> None:
+                    for item in current.actions():
+                        texts.append(item.text())
+                        if item.menu() is not None:
+                            collect(item.menu())
+
+                collect(menu)
+                return texts
         return []
 
     def test_factory_tabs_are_directly_movable_and_old_panel_ui_is_gone(self):

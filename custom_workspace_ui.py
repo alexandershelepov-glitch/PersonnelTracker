@@ -5,13 +5,16 @@ personnel data, assignment history or database schema.
 """
 from __future__ import annotations
 
-from types import MethodType
 from typing import Any
 
 
 def _view_menu(window: Any):
     from PySide6.QtWidgets import QMenu
 
+    # Workspace resets grouped by workspace_resize_ui into one submenu.
+    grouped = getattr(window, "view_reset_menu", None)
+    if isinstance(grouped, QMenu):
+        return grouped
     for menu_action in window.menuBar().actions():
         menu = menu_action.menu()
         if isinstance(menu, QMenu) and menu.title() == "Вид":
@@ -160,34 +163,6 @@ def _install_today_tables(window: Any) -> None:
 
     apply_grid_style()
 
-    # interface_polish.py intentionally makes Today compact by assigning
-    # Stretch/ResizeToContents after each fill. That predates v1.1 customization.
-    # Wrap the already-polished methods and restore the user's complete header
-    # state after every data refresh so widths/order never jump back.
-    original_fill_absent = today._fill_absent
-    original_fill_shift = today._fill_shift
-
-    def preserve_header_refresh(original, table, header):
-        def wrapped(self, rows):
-            state = header.saveState()
-            previous_block = header.blockSignals(True)
-            try:
-                original(rows)
-                header.restoreState(state)
-                configure_table(table)
-            finally:
-                header.blockSignals(previous_block)
-        return wrapped
-
-    today._fill_absent = MethodType(
-        preserve_header_refresh(original_fill_absent, absent, headers["absent"]),
-        today,
-    )
-    today._fill_shift = MethodType(
-        preserve_header_refresh(original_fill_shift, shift, headers["shift"]),
-        today,
-    )
-
     def reset_today_tables() -> None:
         for name, table, settings_key in specs:
             header = headers[name]
@@ -292,11 +267,18 @@ def _install_composition_tab_order(window: Any) -> None:
         tab_bar = tabs.tabBar()
         previous_block = tab_bar.blockSignals(True)
         try:
+            # QTabWidget keeps its page mapping in sync through tabBar signals.
+            # moveTab() with blocked signals moves only the labels and leaves
+            # widget(i) pointing at the old pages, so reorder with
+            # removeTab()/insertTab(), which updates the stack directly.
             for target_index, tab_id in enumerate(order):
                 widget = id_to_widget[tab_id]
                 current_index = tabs.indexOf(widget)
-                if current_index >= 0 and current_index != target_index:
-                    tab_bar.moveTab(current_index, target_index)
+                if current_index < 0 or current_index == target_index:
+                    continue
+                label = tabs.tabText(current_index)
+                tabs.removeTab(current_index)
+                tabs.insertTab(target_index, widget, label)
             if current_widget is not None:
                 tabs.setCurrentWidget(current_widget)
         finally:
@@ -327,18 +309,9 @@ def _install_composition_tab_order(window: Any) -> None:
     reset_action.triggered.connect(reset_tab_order)
     _view_menu(window).addAction(reset_action)
 
-    # composition_ui.py predates movable tabs and its quick navigation uses
-    # factory indexes 0/1. Add final identity-based selectors so those entry
-    # points keep opening the intended page after the user reorders tabs.
-    composition_button = window.nav_group.button(0)
-    if composition_button is not None:
-        composition_button.clicked.connect(
-            lambda _checked=False: tabs.setCurrentWidget(directory)
-        )
-
-    if hasattr(window, "today_page") and hasattr(window.today_page, "team"):
-        window.today_page.team.clicked.connect(lambda: tabs.setCurrentWidget(team))
-
+    # Navigation entry points themselves resolve tabs by widget identity
+    # (composition_ui / manual_team_ui / interface_polish), so no extra
+    # index-based handlers are layered here.
     window.composition_tab_default_order = tuple(default_order)
     window.composition_tab_current_order = current_order
     window.composition_tab_apply_order = apply_order
