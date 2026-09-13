@@ -72,6 +72,20 @@ class UiStabilizationRegressionTests(unittest.TestCase):
         self.assertEqual(table.columnWidth(0), changed)
         self.assertEqual(table.horizontalHeader().sectionResizeMode(0), QHeaderView.Interactive)
 
+    def test_today_factory_widths_are_readable(self):
+        page = self.window.today_page
+        self.assertEqual(
+            [page.absent_table.columnWidth(index) for index in range(4)],
+            [200, 190, 190, 160],
+        )
+        self.assertEqual(
+            [page.shift_table.columnWidth(index) for index in range(3)],
+            [220, 180, 190],
+        )
+        for table in (page.absent_table, page.shift_table):
+            for column in range(table.columnCount()):
+                self.assertGreaterEqual(table.columnWidth(column), 100)
+
     def test_directory_width_survives_refresh_all(self):
         table = self.window.composition_directory_table
         changed = table.columnWidth(0) + 37

@@ -130,11 +130,21 @@ def _install_today_tables(window: Any) -> None:
         for column in range(table.columnCount()):
             header.setSectionResizeMode(column, QHeaderView.Interactive)
 
+    # Predictable factory widths for the operational grids (the columns used to
+    # be Stretch/ResizeToContents, so Interactive needs explicit defaults).
+    default_widths = {
+        "absent": (200, 190, 190, 160),
+        "shift": (220, 180, 190),
+    }
+
     default_states: dict[str, Any] = {}
     headers: dict[str, Any] = {}
 
     for name, table, settings_key in specs:
         configure_table(table)
+        for column, width in enumerate(default_widths[name]):
+            if column < table.columnCount():
+                table.setColumnWidth(column, width)
         header = table.horizontalHeader()
         headers[name] = header
         default_states[name] = header.saveState()
