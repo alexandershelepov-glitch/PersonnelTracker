@@ -7,12 +7,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication, QMenu
+from PySide6.QtWidgets import QApplication, QHeaderView, QMenu
 
 from acceptance_ui_polish import install_acceptance_ui_polish
 from composition_ui import install_composition_ui
 from custom_workspace_ui import install_custom_workspace_ui
+from interface_polish import install_interface_polish
 from ui import MainWindow
+from workflow_ui import install_workflow_ui
 
 
 class CustomWorkspaceUiTests(unittest.TestCase):
@@ -116,6 +118,101 @@ class CustomWorkspaceUiTests(unittest.TestCase):
         finally:
             third_window.close()
             third_window.deleteLater()
+            self.app.processEvents()
+
+
+class TodayTableWorkspaceUiTests(unittest.TestCase):
+    ABSENT_KEY = "today/absent_header_state"
+    SHIFT_KEY = "today/shift_header_state"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.settings = QSettings(str(Path(self.tmp.name) / "settings.ini"), QSettings.IniFormat)
+        self.settings_patch = patch("ui.QSettings", return_value=self.settings)
+        self.settings_patch.start()
+        self.window = self._open_window("today.db")
+
+    def tearDown(self):
+        self.window.close()
+        self.window.deleteLater()
+        self.app.processEvents()
+        self.settings_patch.stop()
+        self.tmp.cleanup()
+
+    def _open_window(self, name: str) -> MainWindow:
+        window = MainWindow(Path(self.tmp.name) / name)
+        install_workflow_ui(window)
+        install_interface_polish(window)
+        install_custom_workspace_ui(window)
+        window.show()
+        self.app.processEvents()
+        return window
+
+    def test_today_tables_are_resizable_gridded_and_refresh_safe(self):
+        page = self.window.today_page
+        muted = self.window.theme_manager.palette()["muted"]
+
+        for table in (page.absent_table, page.shift_table):
+            header = table.horizontalHeader()
+            self.assertTrue(table.showGrid())
+            self.assertTrue(header.sectionsMovable())
+            self.assertFalse(header.stretchLastSection())
+            for column in range(table.columnCount()):
+                self.assertEqual(header.sectionResizeMode(column), QHeaderView.Interactive)
+            self.assertIn(muted, table.styleSheet())
+
+        table = page.absent_table
+        header = table.horizontalHeader()
+        changed_width = table.columnWidth(0) + 47
+        header.moveSection(0, 1)
+        table.setColumnWidth(0, changed_width)
+        self.app.processEvents()
+        changed_visual = header.visualIndex(0)
+        self.assertIsNotNone(self.settings.value(self.ABSENT_KEY))
+
+        # This used to reset the table back to Stretch/ResizeToContents through
+        # interface_polish.py. The v1.1 layer must preserve the user's layout.
+        page.refresh()
+        self.app.processEvents()
+        self.assertEqual(header.sectionResizeMode(0), QHeaderView.Interactive)
+        self.assertEqual(header.visualIndex(0), changed_visual)
+        self.assertEqual(table.columnWidth(0), changed_width)
+
+    def test_today_table_layout_persists_restart_and_reset(self):
+        page = self.window.today_page
+        absent_width = page.absent_table.columnWidth(1) + 39
+        shift_width = page.shift_table.columnWidth(1) + 31
+        page.absent_table.setColumnWidth(1, absent_width)
+        page.shift_table.setColumnWidth(1, shift_width)
+        page.absent_table.horizontalHeader().moveSection(0, 2)
+        self.app.processEvents()
+
+        self.assertIsNotNone(self.settings.value(self.ABSENT_KEY))
+        self.assertIsNotNone(self.settings.value(self.SHIFT_KEY))
+        changed_visual = page.absent_table.horizontalHeader().visualIndex(0)
+
+        second = self._open_window("today_second.db")
+        try:
+            self.assertEqual(second.today_page.absent_table.columnWidth(1), absent_width)
+            self.assertEqual(second.today_page.shift_table.columnWidth(1), shift_width)
+            self.assertEqual(second.today_page.absent_table.horizontalHeader().visualIndex(0), changed_visual)
+
+            second.reset_today_columns_action.trigger()
+            self.app.processEvents()
+            self.assertIsNone(self.settings.value(self.ABSENT_KEY))
+            self.assertIsNone(self.settings.value(self.SHIFT_KEY))
+            for table in (second.today_page.absent_table, second.today_page.shift_table):
+                header = table.horizontalHeader()
+                for logical in range(header.count()):
+                    self.assertEqual(header.visualIndex(logical), logical)
+                    self.assertEqual(header.sectionResizeMode(logical), QHeaderView.Interactive)
+        finally:
+            second.close()
+            second.deleteLater()
             self.app.processEvents()
 
 
