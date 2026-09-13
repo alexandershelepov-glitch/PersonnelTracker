@@ -5,6 +5,7 @@ personnel data, assignment history or database schema.
 """
 from __future__ import annotations
 
+from types import MethodType
 from typing import Any
 
 
@@ -85,6 +86,141 @@ def _install_shds_columns(window: Any) -> None:
     window.shds_default_hidden = default_hidden
     window.reset_shds_columns = reset_shds_header
     window.reset_shds_columns_action = reset_action
+
+
+def _install_today_tables(window: Any) -> None:
+    """Keep Today operational tables user-resizable across every refresh."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QAction
+    from PySide6.QtWidgets import QHeaderView
+
+    today = getattr(window, "today_page", None)
+    if today is None:
+        return
+
+    absent = getattr(today, "absent_table", None)
+    shift = getattr(today, "shift_table", None)
+    if absent is None or shift is None:
+        return
+
+    specs = (
+        ("absent", absent, "today/absent_header_state"),
+        ("shift", shift, "today/shift_header_state"),
+    )
+
+    def configure_table(table) -> None:
+        table.setShowGrid(True)
+        table.setGridStyle(Qt.SolidLine)
+        header = table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionsMovable(True)
+        header.setMinimumSectionSize(72)
+        for column in range(table.columnCount()):
+            header.setSectionResizeMode(column, QHeaderView.Interactive)
+
+    def apply_grid_style() -> None:
+        # The ordinary theme border is intentionally quiet. Today is a compact
+        # operational grid, so use the semantic muted colour for clearer cell
+        # boundaries while still following both light and dark themes.
+        grid = window.theme_manager.palette()["muted"]
+        for _name, table, _key in specs:
+            table.setStyleSheet(f"QTableWidget {{ gridline-color: {grid}; }}")
+
+    default_states: dict[str, Any] = {}
+    headers: dict[str, Any] = {}
+
+    for name, table, settings_key in specs:
+        configure_table(table)
+        header = table.horizontalHeader()
+        headers[name] = header
+        default_states[name] = header.saveState()
+
+        saved = window.settings.value(settings_key)
+        if saved:
+            previous_block = header.blockSignals(True)
+            try:
+                restored = header.restoreState(saved)
+                configure_table(table)
+            finally:
+                header.blockSignals(previous_block)
+            if not restored:
+                previous_block = header.blockSignals(True)
+                try:
+                    header.restoreState(default_states[name])
+                    configure_table(table)
+                finally:
+                    header.blockSignals(previous_block)
+
+        def save_header(*_args, _header=header, _key=settings_key) -> None:
+            window.settings.setValue(_key, _header.saveState())
+
+        header.sectionMoved.connect(save_header)
+        header.sectionResized.connect(save_header)
+        header.sectionDoubleClicked.connect(table.resizeColumnToContents)
+
+    apply_grid_style()
+
+    # interface_polish.py intentionally makes Today compact by assigning
+    # Stretch/ResizeToContents after each fill. That predates v1.1 customization.
+    # Wrap the already-polished methods and restore the user's complete header
+    # state after every data refresh so widths/order never jump back.
+    original_fill_absent = today._fill_absent
+    original_fill_shift = today._fill_shift
+
+    def preserve_header_refresh(original, table, header):
+        def wrapped(self, rows):
+            state = header.saveState()
+            previous_block = header.blockSignals(True)
+            try:
+                original(rows)
+                header.restoreState(state)
+                configure_table(table)
+            finally:
+                header.blockSignals(previous_block)
+        return wrapped
+
+    today._fill_absent = MethodType(
+        preserve_header_refresh(original_fill_absent, absent, headers["absent"]),
+        today,
+    )
+    today._fill_shift = MethodType(
+        preserve_header_refresh(original_fill_shift, shift, headers["shift"]),
+        today,
+    )
+
+    def reset_today_tables() -> None:
+        for name, table, settings_key in specs:
+            header = headers[name]
+            previous_block = header.blockSignals(True)
+            try:
+                header.restoreState(default_states[name])
+                configure_table(table)
+                for logical in range(header.count()):
+                    visual = header.visualIndex(logical)
+                    if visual >= 0 and visual != logical:
+                        header.moveSection(visual, logical)
+            finally:
+                header.blockSignals(previous_block)
+            window.settings.remove(settings_key)
+
+    reset_action = QAction("Сбросить колонки Сегодня", window)
+    reset_action.triggered.connect(reset_today_tables)
+    _view_menu(window).addAction(reset_action)
+
+    original_sync = getattr(window, "_sync_theme_controls", None)
+    if callable(original_sync):
+        def sync_theme() -> None:
+            original_sync()
+            apply_grid_style()
+
+        window._sync_theme_controls = sync_theme
+
+    window.today_absent_header = headers["absent"]
+    window.today_shift_header = headers["shift"]
+    window.today_absent_default_header_state = default_states["absent"]
+    window.today_shift_default_header_state = default_states["shift"]
+    window.reset_today_columns = reset_today_tables
+    window.reset_today_columns_action = reset_action
 
 
 def _install_composition_tab_order(window: Any) -> None:
@@ -217,5 +353,6 @@ def install_custom_workspace_ui(window: Any) -> None:
         return
 
     _install_shds_columns(window)
+    _install_today_tables(window)
     _install_composition_tab_order(window)
     window._custom_workspace_ui_installed = True
