@@ -25,6 +25,7 @@ def _install_directory_action_panel(window: Any) -> None:
         QAbstractItemView,
         QDialog,
         QHBoxLayout,
+        QLabel,
         QListWidget,
         QListWidgetItem,
         QMenu,
@@ -121,12 +122,55 @@ def _install_directory_action_panel(window: Any) -> None:
         def __init__(self, parent=None):
             super().__init__(parent)
             self.setWindowTitle("Настройка панели действий Справочника")
-            self.resize(380, 300)
+            # Compact pilot dialog: two rows plus a short hint.  A reasonable
+            # initial/minimum size keeps it usable without a fixed geometry.
+            self.resize(420, 220)
+            self.setMinimumSize(360, 200)
+
+            palette = window.theme_manager.palette()
+            self.setStyleSheet(
+                f"""
+                QLabel#secondaryText {{
+                    color: {palette['text_secondary']};
+                }}
+                QListWidget {{
+                    background: {palette['panel_bg']};
+                    color: {palette['text']};
+                    border: 1px solid {palette['border']};
+                    border-radius: 8px;
+                    padding: 4px;
+                    outline: none;
+                }}
+                QListWidget::item {{
+                    color: {palette['text']};
+                    padding: 7px 6px;
+                    border-radius: 6px;
+                }}
+                QListWidget::item:hover {{
+                    background: {palette['hover']};
+                    color: {palette['text']};
+                }}
+                QListWidget::item:selected {{
+                    background: {palette['selected']};
+                    color: {palette['selected_text']};
+                }}
+                """
+            )
+
             root = QVBoxLayout(self)
+            hint = QLabel(
+                "Перетащите пункты, чтобы изменить порядок. "
+                "Снимите флажок, чтобы скрыть действие."
+            )
+            hint.setObjectName("secondaryText")
+            hint.setWordWrap(True)
+            root.addWidget(hint)
+
             self.list = QListWidget()
             self.list.setSelectionMode(QAbstractItemView.SingleSelection)
             self.list.setDragDropMode(QAbstractItemView.InternalMove)
             self.list.setDefaultDropAction(Qt.MoveAction)
+            self.list.setMinimumHeight(72)
             root.addWidget(self.list, 1)
             self.populate(*current_state())
 

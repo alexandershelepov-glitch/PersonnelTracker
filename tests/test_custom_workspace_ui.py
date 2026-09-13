@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QLabel, QListWidget
 
 from acceptance_ui_polish import install_acceptance_ui_polish
 from composition_ui import install_composition_ui
@@ -330,6 +330,75 @@ class DirectoryActionPanelUiTests(unittest.TestCase):
             self.assertTrue(self._is_shown(w, w.directory_open_button))
         finally:
             dialog2.deleteLater()
+            self.app.processEvents()
+
+    def test_dialog_is_compact_readable_and_keeps_controls(self):
+        w = self.window
+        dialog = w.directory_action_panel_dialog_type(w)
+        try:
+            # Short drag/visibility hint styled with the app secondary text role.
+            hints = [
+                label
+                for label in dialog.findChildren(QLabel)
+                if label.objectName() == "secondaryText" and label.wordWrap()
+            ]
+            self.assertEqual(len(hints), 1)
+            self.assertIn("Перетащите пункты", hints[0].text())
+            self.assertIn("Снимите флажок", hints[0].text())
+
+            lists = dialog.findChildren(QListWidget)
+            self.assertEqual(len(lists), 1)
+            self.assertIs(dialog.list, lists[0])
+            self.assertEqual(dialog.list.count(), 2)
+            self.assertEqual(dialog.list.dragDropMode(), QAbstractItemView.InternalMove)
+            for row in range(2):
+                item = dialog.list.item(row)
+                self.assertTrue(item.flags() & Qt.ItemIsUserCheckable)
+                self.assertIn(item.checkState(), (Qt.Checked, Qt.Unchecked))
+
+            # Compact, not fixed: bounded initial size with sane minimums.
+            self.assertLessEqual(dialog.width(), 520)
+            self.assertLessEqual(dialog.height(), 320)
+            self.assertGreaterEqual(dialog.minimumWidth(), 300)
+            self.assertGreaterEqual(dialog.minimumHeight(), 160)
+            self.assertGreaterEqual(dialog.height(), dialog.minimumHeight())
+            self.assertGreaterEqual(dialog.width(), dialog.minimumWidth())
+
+            # Local stylesheet uses the live palette, no hard-coded light/dark.
+            sheet = dialog.styleSheet()
+            palette = w.theme_manager.palette()
+            for role in ("panel_bg", "text", "text_secondary", "border", "hover", "selected", "selected_text"):
+                self.assertIn(palette[role], sheet)
+            for selector in (
+                "QListWidget",
+                "QListWidget::item",
+                "QListWidget::item:hover",
+                "QListWidget::item:selected",
+            ):
+                self.assertIn(selector, sheet)
+        finally:
+            dialog.deleteLater()
+            self.app.processEvents()
+
+    def test_dialog_styles_follow_current_theme(self):
+        w = self.window
+        manager = w.theme_manager
+        try:
+            manager.apply(self.app, "light")
+            light_dialog = w.directory_action_panel_dialog_type(w)
+            light_sheet = light_dialog.styleSheet()
+            self.assertIn(manager.palette()["panel_bg"], light_sheet)
+            light_dialog.deleteLater()
+
+            manager.apply(self.app, "dark")
+            dark_dialog = w.directory_action_panel_dialog_type(w)
+            dark_sheet = dark_dialog.styleSheet()
+            self.assertIn(manager.palette()["panel_bg"], dark_sheet)
+            self.assertIn(manager.palette()["selected_text"], dark_sheet)
+            self.assertNotEqual(light_sheet, dark_sheet)
+            dark_dialog.deleteLater()
+        finally:
+            manager.apply(self.app, "light")
             self.app.processEvents()
 
 
