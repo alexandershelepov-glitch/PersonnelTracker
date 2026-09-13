@@ -23,15 +23,22 @@ def _view_menu(window: Any):
 
 
 def _install_shds_columns(window: Any) -> None:
-    """Keep the existing v1.1 movable/persistent SHDS column behaviour."""
+    """Own SHDS column order/width/visibility as the single v1.1 authority."""
     from PySide6.QtGui import QAction
+    from PySide6.QtWidgets import QHeaderView
 
     table = getattr(window, "staff_table", None)
     if table is None:
         return
 
     shds_header = table.horizontalHeader()
+    shds_header.setStretchLastSection(False)
     shds_header.setSectionsMovable(True)
+    shds_header.setMinimumSectionSize(72)
+    # ui.py leaves Должность/ФИО on Stretch. Restore uniform Interactive here so
+    # every divider is draggable and this layer is the only geometry writer.
+    for column in range(table.columnCount()):
+        shds_header.setSectionResizeMode(column, QHeaderView.Interactive)
 
     settings_key = "workspace/shds_header_state"
     default_widths = tuple(table.columnWidth(column) for column in range(table.columnCount()))

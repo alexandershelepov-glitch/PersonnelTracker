@@ -9,6 +9,7 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QCalendarWidget, QHeaderView, QMessageBox
 
 from acceptance_ui_polish import install_acceptance_ui_polish
+from custom_workspace_ui import install_custom_workspace_ui
 from ui import MainWindow
 
 
@@ -33,6 +34,9 @@ class AcceptanceUiFixTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_position_and_fio_columns_are_user_resizable(self):
+        # v1.1: SHDS geometry belongs to the workspace preference layer, which
+        # makes every column Interactive and persists the header in QSettings.
+        install_custom_workspace_ui(self.window)
         header = self.window.staff_table.horizontalHeader()
         for name in ("Должность", "ФИО"):
             column = self.window.staff_headers.index(name)

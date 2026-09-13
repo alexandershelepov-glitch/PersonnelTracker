@@ -1,7 +1,6 @@
 """Small acceptance-stage UI fixes without changing personnel workflows."""
 from __future__ import annotations
 
-import json
 from typing import Any
 
 
@@ -10,7 +9,6 @@ def install_acceptance_ui_polish(window: Any) -> None:
     from PySide6.QtWidgets import (
         QApplication,
         QCalendarWidget,
-        QHeaderView,
         QMessageBox,
         QPushButton,
     )
@@ -18,25 +16,9 @@ def install_acceptance_ui_polish(window: Any) -> None:
     if getattr(window, "_acceptance_ui_polish_installed", False):
         return
 
-    # SHDS: Position and FIO used Stretch mode in the legacy layout, so their
-    # dividers could not be dragged. Restore the same Interactive behaviour as
-    # the other columns while respecting previously saved user widths.
-    table = getattr(window, "staff_table", None)
-    headers = getattr(window, "staff_headers", [])
-    if table is not None:
-        header = table.horizontalHeader()
-        try:
-            saved_widths = json.loads(window.db.get_setting("shds_column_widths", "{}"))
-        except (json.JSONDecodeError, TypeError):
-            saved_widths = {}
-        for name, default_width in (("Должность", 180), ("ФИО", 220)):
-            if name not in headers:
-                continue
-            column = headers.index(name)
-            header.setSectionResizeMode(column, QHeaderView.Interactive)
-            saved = saved_widths.get(name)
-            width = int(saved) if saved is not None else default_width
-            table.setColumnWidth(column, max(100, min(width, 420)))
+    # SHDS column order/width/visibility is owned by the v1.1 workspace layer
+    # (QSettings "workspace/shds_header_state"); this layer no longer competes
+    # for it by re-applying legacy SQLite widths.
 
     # The global theme intentionally pads QTableView cells, but QCalendarWidget
     # uses a compact internal QTableView too. Two-digit dates then have too
