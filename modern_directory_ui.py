@@ -167,7 +167,8 @@ def install_modern_directory_ui(window: Any) -> None:
     empty_state.setWordWrap(True)
     empty_state.setAlignment(Qt.AlignCenter)
 
-    table.setShowGrid(False)
+    # Row boundaries come from the shared theme grid, not a local override.
+    table.setShowGrid(True)
     table.verticalHeader().setDefaultSectionSize(36)
     table.horizontalHeader().setMinimumHeight(40)
 
@@ -278,7 +279,7 @@ def install_modern_directory_ui(window: Any) -> None:
                 alternate-background-color: {window_bg};
                 border: 1px solid {border};
                 border-radius: 10px;
-                gridline-color: transparent;
+                gridline-color: {palette['grid_line']};
             }}
             QTableWidget#compositionDirectory QHeaderView::section {{
                 background: {alternate};

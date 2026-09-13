@@ -28,6 +28,7 @@ LIGHT_PALETTE = {
     "text": "#172033",
     "text_secondary": "#667085",
     "border": "#e3e8ef",
+    "grid_line": "#d5dbe5",
     "hover": "#eef2ff",
     "selected": "#4169e1",
     "selected_text": "#ffffff",
@@ -57,6 +58,7 @@ DARK_PALETTE = {
     "text": "#e7eaf0",
     "text_secondary": "#98a2b3",
     "border": "#343a46",
+    "grid_line": "#3b4350",
     "hover": "#293247",
     "selected": "#6f8ff8",
     "selected_text": "#ffffff",
@@ -284,14 +286,14 @@ def _stylesheet(p: dict[str, str]) -> str:
         QToolButton:hover {{ background: {p['hover']}; }}
         QToolButton::menu-indicator {{ image: none; width: 0; }}
 
-        /* Tables remain dense, but borders and headers are quieter. */
+        /* Data tables: one owner for row/column boundaries on every screen. */
         QTableWidget, QTreeWidget, QTableView, QTreeView {{
             background: {p['panel_bg']};
             color: {p['text']};
             alternate-background-color: {p['alternate_row']};
             border: 1px solid {p['border']};
             border-radius: 10px;
-            gridline-color: {p['border']};
+            gridline-color: {p['grid_line']};
             selection-background-color: {p['selected']};
             selection-color: {p['selected_text']};
             outline: none;
@@ -304,6 +306,25 @@ def _stylesheet(p: dict[str, str]) -> str:
         QTableView::item:hover, QTreeView::item:hover {{
             background: {p['hover']};
             color: {p['text']};
+        }}
+        QListWidget {{
+            background: {p['panel_bg']};
+            color: {p['text']};
+            border: 1px solid {p['border']};
+            border-radius: 8px;
+            outline: none;
+        }}
+        QListWidget::item {{
+            color: {p['text']};
+            padding: 6px 7px;
+        }}
+        QListWidget::item:hover {{
+            background: {p['hover']};
+            color: {p['text']};
+        }}
+        QListWidget::item:selected {{
+            background: {p['selected']};
+            color: {p['selected_text']};
         }}
         QHeaderView {{
             background: {p['header_bg']};

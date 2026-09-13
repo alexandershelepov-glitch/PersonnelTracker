@@ -154,7 +154,7 @@ class TodayTableWorkspaceUiTests(unittest.TestCase):
 
     def test_today_tables_are_resizable_gridded_and_refresh_safe(self):
         page = self.window.today_page
-        muted = self.window.theme_manager.palette()["muted"]
+        grid_line = self.window.theme_manager.palette()["grid_line"]
 
         for table in (page.absent_table, page.shift_table):
             header = table.horizontalHeader()
@@ -163,7 +163,10 @@ class TodayTableWorkspaceUiTests(unittest.TestCase):
             self.assertFalse(header.stretchLastSection())
             for column in range(table.columnCount()):
                 self.assertEqual(header.sectionResizeMode(column), QHeaderView.Interactive)
-            self.assertIn(muted, table.styleSheet())
+            # Grid colour is owned by the shared theme, not a local override.
+            self.assertEqual(table.styleSheet(), "")
+        self.window.theme_manager.apply(self.app, "light")
+        self.assertIn(grid_line, self.app.styleSheet())
 
         table = page.absent_table
         header = table.horizontalHeader()

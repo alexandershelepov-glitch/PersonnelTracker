@@ -73,7 +73,13 @@ class ModernDirectoryUiTests(unittest.TestCase):
             "Поиск, фильтры и быстрый доступ к карточкам работников.",
         )
         self.assertFalse(helper.wordWrap())
-        self.assertFalse(self.window.composition_directory_table.showGrid())
+        # v1.1 unification: user data tables read as tables, so the Directory
+        # uses the shared theme grid colour instead of hiding row boundaries.
+        self.assertTrue(self.window.composition_directory_table.showGrid())
+        self.assertIn(
+            self.window.theme_manager.palette()["grid_line"],
+            self.window.composition_directory.styleSheet(),
+        )
         self.assertIn("Добавьте работников", self.window.composition_empty_state.text())
 
     def test_install_is_idempotent(self):

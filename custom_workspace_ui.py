@@ -112,6 +112,8 @@ def _install_today_tables(window: Any) -> None:
     )
 
     def configure_table(table) -> None:
+        # Grid colour and boundaries are owned by the shared theme; Today only
+        # declares that it is a gridded data table.
         table.setShowGrid(True)
         table.setGridStyle(Qt.SolidLine)
         header = table.horizontalHeader()
@@ -120,14 +122,6 @@ def _install_today_tables(window: Any) -> None:
         header.setMinimumSectionSize(72)
         for column in range(table.columnCount()):
             header.setSectionResizeMode(column, QHeaderView.Interactive)
-
-    def apply_grid_style() -> None:
-        # The ordinary theme border is intentionally quiet. Today is a compact
-        # operational grid, so use the semantic muted colour for clearer cell
-        # boundaries while still following both light and dark themes.
-        grid = window.theme_manager.palette()["muted"]
-        for _name, table, _key in specs:
-            table.setStyleSheet(f"QTableWidget {{ gridline-color: {grid}; }}")
 
     default_states: dict[str, Any] = {}
     headers: dict[str, Any] = {}
@@ -161,8 +155,6 @@ def _install_today_tables(window: Any) -> None:
         header.sectionResized.connect(save_header)
         header.sectionDoubleClicked.connect(table.resizeColumnToContents)
 
-    apply_grid_style()
-
     def reset_today_tables() -> None:
         for name, table, settings_key in specs:
             header = headers[name]
@@ -181,14 +173,6 @@ def _install_today_tables(window: Any) -> None:
     reset_action = QAction("Сбросить колонки Сегодня", window)
     reset_action.triggered.connect(reset_today_tables)
     _view_menu(window).addAction(reset_action)
-
-    original_sync = getattr(window, "_sync_theme_controls", None)
-    if callable(original_sync):
-        def sync_theme() -> None:
-            original_sync()
-            apply_grid_style()
-
-        window._sync_theme_controls = sync_theme
 
     window.today_absent_header = headers["absent"]
     window.today_shift_header = headers["shift"]
