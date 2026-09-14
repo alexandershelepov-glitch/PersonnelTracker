@@ -51,7 +51,7 @@ app = BUNDLE(
     name="PersonnelTracker.app",
     icon=None,
     bundle_identifier="ru.personneltracker.app",
-    version="1.0.0",
+    version="1.1.0",
     info_plist={
         "CFBundleDisplayName": "Учёт личного состава",
         "CFBundleName": "PersonnelTracker",
