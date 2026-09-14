@@ -1,0 +1,84 @@
+name: Build Windows portable
+
+# Windows builds are started manually from the Actions tab. They are
+# intentionally not triggered by every push so ordinary commits do not consume
+# Windows runner minutes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Windows x64 portable (onedir)
+    runs-on: windows-latest
+    env:
+      # GitHub runners have no interactive desktop; the whole suite and the
+      # packaged smoke run use the Qt offscreen platform.
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Run test suite
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Build portable onedir bundle
+        run: python -m PyInstaller --noconfirm --clean PersonnelTracker-windows.spec
+
+      - name: Verify bundle and runtime data location
+        shell: pwsh
+        run: |
+          $appDir = "dist\PersonnelTracker"
+          $app = Join-Path $appDir "PersonnelTracker.exe"
+          if (-not (Test-Path $app)) { throw "PersonnelTracker.exe not found at $app" }
+          if (-not (Test-Path (Join-Path $appDir "_internal"))) { throw "PyInstaller _internal folder is missing" }
+
+          # Fresh state: the frozen app must create %LOCALAPPDATA%\PersonnelTracker\data.
+          $localRoot = Join-Path $env:LOCALAPPDATA "PersonnelTracker"
+          $localData = Join-Path $localRoot "data"
+          if (Test-Path $localRoot) { Remove-Item -Recurse -Force $localRoot }
+
+          $process = Start-Process -FilePath $app -PassThru
+          $db = Join-Path $localData "personnel.db"
+          for ($attempt = 0; $attempt -lt 60 -and -not (Test-Path $db); $attempt++) {
+            Start-Sleep -Seconds 1
+            if ($process.HasExited) { break }
+          }
+          if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+
+          if (-not (Test-Path $db)) { throw "Frozen application did not create $db" }
+          if (Test-Path (Join-Path $appDir "data")) { throw "Frozen application wrote user data inside the program folder" }
+          Write-Host "Runtime data location verified: $db"
+
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          $zip = "PersonnelTracker-v1.1.0-Windows-x64.zip"
+          if (Test-Path $zip) { Remove-Item -Force $zip }
+          Compress-Archive -Path dist\PersonnelTracker -DestinationPath $zip
+          Get-Item $zip | Select-Object Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PersonnelTracker-v1.1.0-Windows-x64
+          path: PersonnelTracker-v1.1.0-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
