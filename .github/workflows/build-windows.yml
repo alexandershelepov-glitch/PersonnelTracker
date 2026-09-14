@@ -16,6 +16,7 @@ on:
       - "requirements.txt"
       - "requirements-build.txt"
       - "app.py"
+      - "tests/**"
       - ".github/workflows/build-windows.yml"
 
 permissions:
