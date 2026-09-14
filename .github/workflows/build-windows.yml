@@ -1,10 +1,22 @@
 name: Build Windows portable
 
-# Windows builds are started manually from the Actions tab. They are
-# intentionally not triggered by every push so ordinary commits do not consume
-# Windows runner minutes.
+# Manual runs are the primary scenario. GitHub only registers
+# workflow_dispatch once the workflow exists on the default branch, so a
+# narrowly scoped push trigger builds the first artifact from this feature
+# branch before it reaches main. It reacts only to Windows build inputs and
+# never fires for main or unrelated branches.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature/windows-standalone
+    paths:
+      - "runtime_paths.py"
+      - "PersonnelTracker-windows.spec"
+      - "requirements.txt"
+      - "requirements-build.txt"
+      - "app.py"
+      - ".github/workflows/build-windows.yml"
 
 permissions:
   contents: read
