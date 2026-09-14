@@ -41,7 +41,16 @@ def _install_shds_columns(window: Any) -> None:
         shds_header.setSectionResizeMode(column, QHeaderView.Interactive)
 
     settings_key = "workspace/shds_header_state"
-    default_widths = tuple(table.columnWidth(column) for column in range(table.columnCount()))
+    minimum_width = shds_header.minimumSectionSize()
+    # Factory widths must be reachable: ui.py keeps a couple of columns below
+    # the v1.1 minimum, and Qt would silently clamp them on the next layout, so
+    # capture the clamped value instead of an unreachable pre-layout width.
+    default_widths = tuple(
+        table.columnWidth(column)
+        if table.isColumnHidden(column)
+        else max(table.columnWidth(column), minimum_width)
+        for column in range(table.columnCount())
+    )
     default_hidden = tuple(table.isColumnHidden(column) for column in range(table.columnCount()))
 
     def apply_shds_defaults() -> None:
@@ -96,6 +105,9 @@ def _install_shds_columns(window: Any) -> None:
     window.shds_default_hidden = default_hidden
     window.reset_shds_columns = reset_shds_header
     window.reset_shds_columns_action = reset_action
+    # The "Настроить колонки" menu in ui.py toggles visibility without emitting
+    # sectionResized, so it persists through this explicit callback.
+    window.save_shds_workspace_layout = save_shds_header
 
 
 def _install_today_tables(window: Any) -> None:

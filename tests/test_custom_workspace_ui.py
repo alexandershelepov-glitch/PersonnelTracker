@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QPoint, QRect, QSettings
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QHeaderView, QMenu
 
 from acceptance_ui_polish import install_acceptance_ui_polish
@@ -119,6 +120,107 @@ class CustomWorkspaceUiTests(unittest.TestCase):
             third_window.close()
             third_window.deleteLater()
             self.app.processEvents()
+
+    def test_resize_and_reorder_do_not_write_legacy_sqlite_layout(self):
+        table = self.window.staff_table
+        header = self.window.shds_custom_header
+        first, second = self._first_two_visible_columns(self.window)
+
+        header.moveSection(header.visualIndex(first), header.visualIndex(second))
+        table.setColumnWidth(second, table.columnWidth(second) + 33)
+        self.app.processEvents()
+
+        # QSettings is the only layout store; the legacy SQLite settings stay absent.
+        self.assertIsNotNone(self.settings.value("workspace/shds_header_state"))
+        self.assertIsNone(self.window.db.get_setting("shds_column_widths", None))
+        self.assertIsNone(self.window.db.get_setting("shds_visible_columns", None))
+
+    def test_column_menu_hides_persistently_without_sqlite(self):
+        table = self.window.staff_table
+        target = 3  # a user column ("Отделение"), never the hidden technical ID
+        self.assertFalse(table.isColumnHidden(target))
+
+        class _FakeSender:
+            def mapToGlobal(self, _point):
+                return QPoint(0, 0)
+
+            def rect(self):
+                return QRect(0, 0, 10, 10)
+
+        # Exercise the real menu wiring without a blocking modal exec().
+        created = {}
+
+        class _FakeMenu:
+            def __init__(self, parent=None):
+                self.actions = []
+                created["menu"] = self
+
+            def addAction(self, text):
+                action = QAction(text)
+                self.actions.append(action)
+                return action
+
+            def exec(self, *_args, **_kwargs):
+                return None
+
+        original_sender = self.window.sender
+        self.window.sender = lambda: _FakeSender()
+        try:
+            with patch("ui.QMenu", _FakeMenu):
+                self.window.show_column_menu()
+        finally:
+            self.window.sender = original_sender
+
+        menu = created["menu"]
+        action = next(
+            item for item in menu.actions
+            if item.text() == self.window.staff_headers[target]
+        )
+        self.assertTrue(action.isChecked())
+        action.setChecked(False)
+        self.app.processEvents()
+
+        self.assertTrue(table.isColumnHidden(target))
+        self.assertIsNotNone(self.settings.value("workspace/shds_header_state"))
+        self.assertIsNone(self.window.db.get_setting("shds_visible_columns", None))
+        self.assertIsNone(self.window.db.get_setting("shds_column_widths", None))
+
+        second_window = self._open_window("personnel_hidden.db")
+        try:
+            self.assertTrue(second_window.staff_table.isColumnHidden(target))
+        finally:
+            second_window.close()
+            second_window.deleteLater()
+            self.app.processEvents()
+
+    def test_reset_restores_factory_layout_without_sqlite(self):
+        table = self.window.staff_table
+        header = self.window.shds_custom_header
+        factory_widths = tuple(self.window.shds_default_widths)
+        factory_hidden = tuple(self.window.shds_default_hidden)
+
+        table.setColumnWidth(1, table.columnWidth(1) + 25)
+        table.setColumnHidden(3, True)
+        self.window.persist_shds_workspace()
+        self.app.processEvents()
+        self.assertIsNotNone(self.settings.value("workspace/shds_header_state"))
+
+        self.window.reset_shds_columns_action.trigger()
+        self.app.processEvents()
+
+        for logical in range(header.count()):
+            self.assertEqual(header.visualIndex(logical), logical)
+        self.assertEqual(
+            tuple(table.columnWidth(column) for column in range(table.columnCount())),
+            factory_widths,
+        )
+        self.assertEqual(
+            tuple(table.isColumnHidden(column) for column in range(table.columnCount())),
+            factory_hidden,
+        )
+        self.assertIsNone(self.settings.value("workspace/shds_header_state"))
+        self.assertIsNone(self.window.db.get_setting("shds_visible_columns", None))
+        self.assertIsNone(self.window.db.get_setting("shds_column_widths", None))
 
 
 class TodayTableWorkspaceUiTests(unittest.TestCase):

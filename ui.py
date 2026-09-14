@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-import json
 from datetime import date
 from pathlib import Path
 from collections import defaultdict
@@ -985,12 +984,10 @@ class MainWindow(QMainWindow):
         header.sectionClicked.connect(self.sort_staff_by_column)
         header.setContextMenuPolicy(Qt.CustomContextMenu)
         header.customContextMenuRequested.connect(self.open_staff_filter_menu)
-        header.sectionResized.connect(self.save_staff_layout)
         self.staff_table.doubleClicked.connect(self.open_staff_row)
         # Приоритетные колонки читаемы сразу; ФИО и должность тянутся,
         # второстепенные данные доступны прокруткой и настройкой колонок.
         self._apply_default_staff_column_sizes()
-        self._restore_staff_layout()
         root.addWidget(self.staff_table)
         self._add_page(page)
 
@@ -1156,24 +1153,15 @@ class MainWindow(QMainWindow):
         menu=QMenu(self)
         for index, header in enumerate(self.staff_headers[1:], 1):
             action=menu.addAction(header); action.setCheckable(True); action.setChecked(not self.staff_table.isColumnHidden(index))
-            action.toggled.connect(lambda visible, index=index: (self.staff_table.setColumnHidden(index, not visible), self.save_staff_layout()))
+            action.toggled.connect(lambda visible, index=index: (self.staff_table.setColumnHidden(index, not visible), self.persist_shds_workspace()))
         menu.exec(self.sender().mapToGlobal(self.sender().rect().bottomLeft()))
 
-    def _restore_staff_layout(self):
-        try:
-            visible=json.loads(self.db.get_setting('shds_visible_columns','{}'))
-            widths=json.loads(self.db.get_setting('shds_column_widths','{}'))
-        except json.JSONDecodeError:
-            visible, widths = {}, {}
-        for index, header in enumerate(self.staff_headers[1:], 1):
-            if header in visible: self.staff_table.setColumnHidden(index, not bool(visible[header]))
-            if header in widths:
-                self.staff_table.setColumnWidth(index, max(80, min(int(widths[header]), 320)))
+    def persist_shds_workspace(self):
+        """Ask the v1.1 workspace layer to save the SHDS header in QSettings."""
+        callback = getattr(self, "save_shds_workspace_layout", None)
+        if callable(callback):
+            callback()
 
-    def save_staff_layout(self, *_args):
-        visible={header:not self.staff_table.isColumnHidden(index) for index,header in enumerate(self.staff_headers[1:],1)}
-        widths={header:self.staff_table.columnWidth(index) for index,header in enumerate(self.staff_headers[1:],1)}
-        self.db.set_setting('shds_visible_columns',json.dumps(visible,ensure_ascii=False)); self.db.set_setting('shds_column_widths',json.dumps(widths,ensure_ascii=False))
     def refresh_employees(self):
         rows = self.service.list_employees(self.emp_search.text()); self.emp_table.setRowCount(len(rows))
         for i, r in enumerate(rows):
