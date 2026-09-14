@@ -6,6 +6,7 @@ from typing import Any
 
 from backup import BackupError, BackupManager
 from config import APP_NAME
+from console_output import safe_print
 
 
 class LocalBackupManager(BackupManager):
@@ -262,7 +263,7 @@ def install_backup_features(window: Any) -> None:
     try:
         created = manager.create_auto_backup_if_due()
         if created:
-            print(f"Автоматическая резервная копия: {created}")
+            safe_print(f"Автоматическая резервная копия: {created}")
     except Exception as exc:
-        print(f"Не удалось создать автоматическую резервную копию: {exc}")
+        safe_print(f"Не удалось создать автоматическую резервную копию: {exc}")
     refresh_status()

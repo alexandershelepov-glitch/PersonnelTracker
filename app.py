@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 from config import APP_NAME
+from console_output import ensure_utf8_console, safe_print
 from runtime_paths import data_dir, database_path
 
 
@@ -44,8 +45,9 @@ def main() -> int:
     from workflow_ui import install_workflow_ui
     from workspace_resize_ui import install_workspace_resize_ui
 
+    ensure_utf8_console()
     db_path = database_path()
-    print(f"Используется база данных: {db_path}")
+    safe_print(f"Используется база данных: {db_path}")
 
     # The application UI is Russian; set one Qt-wide locale so month/day names
     # in calendars, planners and date widgets never fall back to English on a

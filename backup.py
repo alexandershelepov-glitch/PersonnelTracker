@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from config import APP_NAME
+from console_output import safe_print
 from database import Database
 
 
@@ -466,7 +467,7 @@ def install_backup_features(window: Any) -> None:
     try:
         created = manager.create_auto_backup_if_due()
         if created:
-            print(f"Автоматическая резервная копия: {created}")
+            safe_print(f"Автоматическая резервная копия: {created}")
     except Exception as exc:  # Backup failure must never prevent application startup.
-        print(f"Не удалось создать автоматическую резервную копию: {exc}")
+        safe_print(f"Не удалось создать автоматическую резервную копию: {exc}")
     refresh_status()
